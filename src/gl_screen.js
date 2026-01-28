@@ -246,6 +246,25 @@ function CalcFov( fov_x, width, height ) {
 }
 
 /*
+====================
+CalcFovX
+
+Inverse of CalcFov - given vertical FOV, calculate horizontal FOV
+====================
+*/
+function CalcFovX( fov_y, width, height ) {
+
+	if ( fov_y < 1 || fov_y > 179 )
+		fov_y = 90;
+
+	const y = height / Math.tan( fov_y / 360 * Math.PI );
+	let a = Math.atan( width / y );
+	a = a * 360 / Math.PI;
+	return a;
+
+}
+
+/*
 =================
 SCR_CalcRefdef
 
@@ -334,8 +353,10 @@ function SCR_CalcRefdef() {
 	else
 		_r_refdef.vrect.y = Math.floor( ( h - _r_refdef.vrect.height ) / 2 );
 
-	_r_refdef.fov_x = scr_fov.value;
-	_r_refdef.fov_y = CalcFov( _r_refdef.fov_x, _r_refdef.vrect.width, _r_refdef.vrect.height );
+	// Hor+ FOV: lock vertical FOV to what fov cvar gives at 4:3,
+	// then expand horizontal FOV for the actual aspect ratio.
+	_r_refdef.fov_y = CalcFov( scr_fov.value, 4, 3 );
+	_r_refdef.fov_x = CalcFovX( _r_refdef.fov_y, _r_refdef.vrect.width, _r_refdef.vrect.height );
 
 	scr_vrect.x = _r_refdef.vrect.x;
 	scr_vrect.y = _r_refdef.vrect.y;
