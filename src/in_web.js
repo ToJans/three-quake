@@ -15,7 +15,7 @@ import {
 import { Cvar_RegisterVariable } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { Con_Printf } from './console.js';
-import { cl, cls } from './client.js';
+import { cl, cls, ca_connected } from './client.js';
 import { m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
 import { in_mlook, in_strafe, in_jump, cl_forwardspeed, cl_sidespeed } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
@@ -260,8 +260,8 @@ function handleMouseDown( event ) {
 	// Only when actually playing, not during demo playback
 	if ( isMobile ) {
 
-		// Request fullscreen only when entering actual gameplay
-		if ( key_dest === key_game && ! cls.demoplayback ) {
+		// Request fullscreen only when actually playing a map (not menu, demo, or idle state)
+		if ( key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
 
 			Touch_RequestFullscreen();
 
@@ -362,8 +362,8 @@ function handleTouchStart( event ) {
 
 	if ( ! in_initialized ) return;
 
-	// On mobile, request fullscreen only when entering actual gameplay
-	if ( isMobile && key_dest === key_game && ! cls.demoplayback ) {
+	// On mobile, request fullscreen only when actually playing a map (not menu, demo, or idle state)
+	if ( isMobile && key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
 
 		Touch_RequestFullscreen();
 
