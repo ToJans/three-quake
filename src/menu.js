@@ -1071,7 +1071,22 @@ function M_LanConfig_Key( key ) {
 				const room = slist_rooms[ slist_cursor ];
 				const params = new URLSearchParams( window.location.search );
 				const serverUrl = params.get( 'server' ) || DEFAULT_WT_SERVER;
-				const connectUrl = serverUrl + '?room=' + encodeURIComponent( room.id );
+
+				// Build connect URL - use room's port if available (multi-process mode)
+				let connectUrl;
+				if ( room.port && room.port !== 4433 ) {
+
+					// Connect directly to room server on its port
+					const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
+					urlObj.port = String( room.port );
+					connectUrl = urlObj.toString().replace( /^https:\/\//, 'wts://' );
+
+				} else {
+
+					// Legacy: connect through lobby with room ID
+					connectUrl = serverUrl + '?room=' + encodeURIComponent( room.id );
+
+				}
 
 				// Update browser URL so user can share it
 				const shareUrl = window.location.origin + window.location.pathname + '?room=' + room.id;
@@ -1301,7 +1316,7 @@ function M_GameOptions_Key( key ) {
 
 						if ( room && room.id ) {
 
-							Con_Printf( 'Room created: ' + room.id + '\n' );
+							Con_Printf( 'Room created: ' + room.id + ( room.port ? ' on port ' + room.port : '' ) + '\n' );
 							// Update browser URL so user can share it
 							const shareUrl = window.location.origin + window.location.pathname + '?room=' + room.id;
 							history.replaceState( null, '', shareUrl );
@@ -1312,7 +1327,23 @@ function M_GameOptions_Key( key ) {
 
 							// Connect to the remote server as a client (not local game)
 							// The remote server is the authoritative game server
-							const connectUrl = serverUrl + '?room=' + room.id;
+							// If room has a port, connect directly to it (room server)
+							// Otherwise, connect to lobby with room ID (legacy mode)
+							let connectUrl;
+							if ( room.port && room.port !== 4433 ) {
+
+								// Connect directly to room server on its port
+								const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
+								urlObj.port = String( room.port );
+								connectUrl = urlObj.toString().replace( /^https:\/\//, 'wts://' );
+
+							} else {
+
+								// Legacy: connect through lobby
+								connectUrl = serverUrl + '?room=' + room.id;
+
+							}
+
 							Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
 
 						}

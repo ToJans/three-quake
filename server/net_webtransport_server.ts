@@ -294,12 +294,18 @@ async function _handleWebTransportSession(wt: WebTransport, address: string): Pr
 		clientConn.bidirectionalStream = stream;
 		clientConn.reliableWriter = stream.writable.getWriter();
 		clientConn.reliableReader = stream.readable.getReader();
-		Sys_Printf('Stream ready, handling lobby protocol...\n');
 
-		// Handle lobby protocol first
-		const isGameConnection = await _handleLobbyProtocol(clientConn, wt);
-		if (!isGameConnection) {
-			return;
+		// In direct mode (room servers), skip lobby protocol entirely
+		if (directMode) {
+			Sys_Printf('Direct mode: accepting game connection from %s\n', address);
+		} else {
+			Sys_Printf('Stream ready, handling lobby protocol...\n');
+
+			// Handle lobby protocol first
+			const isGameConnection = await _handleLobbyProtocol(clientConn, wt);
+			if (!isGameConnection) {
+				return;
+			}
 		}
 
 		// Create a socket for this game connection

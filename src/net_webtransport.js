@@ -586,7 +586,7 @@ export async function WT_Connect( host ) {
 			await conn.reliableWriter.write( request );
 			Con_Printf( 'LOBBY_JOIN sent\n' );
 
-			// Read first framed message - could be LOBBY_ERROR or game data
+			// Read first framed message - could be LOBBY_ERROR, LOBBY_ROOMS (redirect), or game data
 			// Use a race with timeout in case server is slow
 			const firstMsg = await Promise.race( [
 				_WT_ReadFramedMessageWithType( conn.reliableReader ),
@@ -641,6 +641,37 @@ export async function WT_Connect( host ) {
 
 			}
 
+			// Check if lobby is redirecting us to a room server on a different port
+			if ( firstMsg.type === LOBBY_ROOMS && firstMsg.data && firstMsg.data.length > 0 ) {
+
+				try {
+
+					const roomInfo = JSON.parse( new TextDecoder().decode( firstMsg.data ) );
+					if ( roomInfo.port && roomInfo.port !== 4433 ) {
+
+						// Close lobby connection and redirect to room server
+						Con_Printf( 'Redirecting to room server on port ' + roomInfo.port + '\n' );
+						transport.close();
+						NET_FreeQSocket( sock );
+
+						// Build new URL with room's port (no room parameter - direct connection)
+						const urlObj = new URL( url );
+						urlObj.port = String( roomInfo.port );
+						const roomUrl = urlObj.toString();
+
+						// Connect directly to room server
+						return await _WT_ConnectDirect( roomUrl, host );
+
+					}
+
+				} catch ( e ) {
+
+					Con_Printf( 'Failed to parse room redirect: ' + e.message + '\n' );
+
+				}
+
+			}
+
 			// If we got game data, put it back for the game to read
 			if ( firstMsg.data && firstMsg.data.length > 0 ) {
 
@@ -682,6 +713,104 @@ export async function WT_Connect( host ) {
 	} catch ( error ) {
 
 		Con_Printf( 'WebTransport connect failed: ' + error.message + '\n' );
+
+		// Clear room from URL so refresh doesn't retry
+		if ( typeof history !== 'undefined' ) {
+
+			const cleanUrl = window.location.origin + window.location.pathname;
+			history.replaceState( null, '', cleanUrl );
+
+		}
+
+		// Return to main menu
+		M_Menu_Main_f();
+		set_key_dest( key_menu );
+
+		return null;
+
+	}
+
+}
+
+/*
+=============
+_WT_ConnectDirect
+
+Connect directly to a room server (no lobby protocol)
+Used when redirected from lobby to a room server on a different port
+=============
+*/
+async function _WT_ConnectDirect( url, originalHost ) {
+
+	Con_Printf( 'WebTransport connecting directly to ' + url + '\n' );
+
+	try {
+
+		// Create the WebTransport connection
+		const transport = new WebTransport( url );
+
+		// Wait for connection to be ready
+		await transport.ready;
+
+		Con_Printf( 'WebTransport direct connection established\n' );
+
+		// Create a new socket
+		const sock = NET_NewQSocket();
+		if ( ! sock ) {
+
+			Con_Printf( '_WT_ConnectDirect: no free sockets\n' );
+			transport.close();
+			return null;
+
+		}
+
+		sock.address = originalHost;
+		sock.driver = net_driverlevel;
+
+		// Create connection data
+		const conn = new WebTransportConnection( transport );
+		conn.connected = true;
+
+		// Create bidirectional stream for reliable messages
+		conn.reliableStream = await transport.createBidirectionalStream();
+		conn.reliableWriter = conn.reliableStream.writable.getWriter();
+		conn.reliableReader = conn.reliableStream.readable.getReader();
+
+		// Room servers in direct mode don't need lobby protocol
+		// Just set up the connection and let the game proceed
+
+		// Set up datagram streams for unreliable messages
+		conn.datagramWriter = transport.datagrams.writable.getWriter();
+		conn.datagramReader = transport.datagrams.readable.getReader();
+
+		// Store connection
+		sock.driverdata = conn;
+		wt_connections.set( sock, conn );
+
+		// Start background readers
+		_WT_StartBackgroundReaders( sock, conn );
+
+		// Handle connection close
+		transport.closed.then( () => {
+
+			Con_Printf( 'WebTransport connection closed\n' );
+			conn.connected = false;
+			sock.disconnected = true;
+
+		} ).catch( ( error ) => {
+
+			Con_Printf( 'WebTransport connection error: ' + error.message + '\n' );
+			conn.connected = false;
+			conn.error = error;
+			sock.disconnected = true;
+
+		} );
+
+		return sock;
+
+	} catch ( error ) {
+
+		Con_Printf( 'WebTransport direct connect failed: ' + error.message + '\n' );
 
 		// Clear room from URL so refresh doesn't retry
 		if ( typeof history !== 'undefined' ) {

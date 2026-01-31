@@ -38,6 +38,7 @@ import {
 	WT_SetDriverLevel,
 	WT_SetSocketAllocator,
 	WT_SetMapCallbacks,
+	WT_SetDirectMode,
 } from './net_webtransport_server.ts';
 import { NET_NewQSocket } from '../src/net_main.js';
 
@@ -56,6 +57,9 @@ const CONFIG = {
 	tickRate: 72,
 	maxClients: 16,
 	defaultMap: 'start',
+	roomId: null,        // Room ID if spawned by lobby server
+	directMode: false,   // Skip lobby protocol, accept connections directly
+	idleTimeout: 300,    // Seconds to wait before exiting when empty (room mode)
 };
 
 // Parse command line arguments
@@ -75,6 +79,13 @@ function parseArgs() {
 			CONFIG.certFile = args[++i];
 		} else if (arg === '-key' && args[i + 1]) {
 			CONFIG.keyFile = args[++i];
+		} else if (arg === '-room' && args[i + 1]) {
+			CONFIG.roomId = args[++i];
+			CONFIG.directMode = true; // Room servers use direct mode
+		} else if (arg === '-direct') {
+			CONFIG.directMode = true;
+		} else if (arg === '-idletimeout' && args[i + 1]) {
+			CONFIG.idleTimeout = parseInt(args[++i], 10);
 		}
 	}
 }
@@ -84,12 +95,20 @@ let host_frametime = 0;
 let realtime = 0;
 let oldrealtime = 0;
 
+// Idle tracking for room servers
+let lastActiveTime = 0;
+let hadPlayersEver = false;
+
 /**
  * Initialize the game server
  */
 async function Host_Init_Server() {
 	Sys_Printf('========================================\n');
-	Sys_Printf('Three-Quake Game Server v1.0\n');
+	if (CONFIG.roomId !== null) {
+		Sys_Printf('Three-Quake Room Server [%s]\n', CONFIG.roomId);
+	} else {
+		Sys_Printf('Three-Quake Game Server v1.0\n');
+	}
 	Sys_Printf('========================================\n\n');
 
 	// Initialize subsystems in order (from host.js)
@@ -116,6 +135,12 @@ async function Host_Init_Server() {
 		certFile: CONFIG.certFile,
 		keyFile: CONFIG.keyFile,
 	});
+
+	// If running as a room server, use direct mode (skip lobby protocol)
+	if (CONFIG.directMode) {
+		WT_SetDirectMode(true);
+		Sys_Printf('Direct mode enabled (room server)\n');
+	}
 
 	// Initialize base networking (sets up loopback driver 0)
 	NET_Init();
@@ -199,6 +224,19 @@ async function Host_Init_Server() {
 }
 
 /**
+ * Count active players
+ */
+function countActivePlayers() {
+	let count = 0;
+	for (let i = 0; i < svs.maxclients; i++) {
+		if (svs.clients[i].active) {
+			count++;
+		}
+	}
+	return count;
+}
+
+/**
  * Run a single server frame
  */
 function Host_ServerFrame() {
@@ -235,6 +273,22 @@ function Host_ServerFrame() {
 
 	// Send messages to all clients
 	SV_SendClientMessages();
+
+	// Track activity for room servers (idle timeout)
+	if (CONFIG.roomId !== null) {
+		const playerCount = countActivePlayers();
+		if (playerCount > 0) {
+			lastActiveTime = realtime;
+			hadPlayersEver = true;
+		} else if (hadPlayersEver && CONFIG.idleTimeout > 0) {
+			// Check idle timeout only after we've had players
+			const idleTime = realtime - lastActiveTime;
+			if (idleTime > CONFIG.idleTimeout) {
+				Sys_Printf('Room %s idle for %d seconds, shutting down\n', CONFIG.roomId, Math.floor(idleTime));
+				Deno.exit(0);
+			}
+		}
+	}
 }
 
 /**
