@@ -515,8 +515,8 @@ async function _handleLobbyProtocol(
 				const roomId = new TextDecoder().decode(msg.data).trim().toUpperCase();
 				let room = getRoom(roomId);
 
-				// Auto-create room for specific shared link (3LUVYZ)
-				if (!room && roomId === '3LUVYZ') {
+				// Auto-create room for specific shared link (3LUVYX)
+				if (!room && roomId === '3LUVYX') {
 					Sys_Printf('Auto-creating shared room: ' + roomId + '\n');
 					room = createRoomWithId(roomId, {
 						map: 'start',
