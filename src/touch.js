@@ -459,6 +459,46 @@ export async function Touch_RequestFullscreen() {
 
 /*
 =================
+Touch_ExitFullscreen
+
+Exit fullscreen mode
+=================
+*/
+export async function Touch_ExitFullscreen() {
+
+	if ( ! document.fullscreenElement && ! document.webkitFullscreenElement ) return;
+
+	try {
+
+		if ( document.exitFullscreen ) {
+
+			await document.exitFullscreen();
+
+		} else if ( document.webkitExitFullscreen ) {
+
+			await document.webkitExitFullscreen();
+
+		}
+
+		// Unlock orientation
+		if ( screen.orientation && screen.orientation.unlock ) {
+
+			screen.orientation.unlock();
+
+		}
+
+		fullscreenActivated = false;
+
+	} catch ( e ) {
+
+		console.log( 'Could not exit fullscreen:', e.message );
+
+	}
+
+}
+
+/*
+=================
 Touch_Init
 
 Initialize touch controls

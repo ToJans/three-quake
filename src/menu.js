@@ -17,6 +17,7 @@ import { scr_viewsize, scr_con_current } from './gl_screen.js';
 import { v_gamma } from './view.js';
 import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
 import { skill, coop, teamplay, fraglimit, timelimit, deathmatch, svs } from './server.js';
+import { Touch_ExitFullscreen } from './touch.js';
 
 /*
 ==============================================================================
@@ -604,6 +605,8 @@ function M_Main_Key( key ) {
 					M_Menu_Help_f();
 					break;
 				case 4:
+					// Exit fullscreen when entering quit menu
+					Touch_ExitFullscreen();
 					M_Menu_Quit_f();
 					break;
 
