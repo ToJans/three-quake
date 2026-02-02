@@ -1,7 +1,7 @@
 // Ported from: WinQuake/host.c -- coordinates spawning and killing of local servers
 
 import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
-import { Con_Printf, Con_DPrintf, SZ_Write, SZ_Clear,
+import { Con_Printf, Con_DPrintf, Con_SetPrintFunctions, SZ_Write, SZ_Clear,
 	MSG_WriteByte, MSG_WriteShort, MSG_WriteLong, MSG_WriteFloat,
 	MSG_WriteString, MSG_WriteAngle } from './common.js';
 import { svc_signonnum, svc_time, svc_updatename, svc_updatefrags,
@@ -20,7 +20,7 @@ import { Chase_Init } from './chase.js';
 import { W_LoadWadFile } from './wad.js';
 import { COM_LoadFile } from './pak.js';
 import { Key_Init } from './keys.js';
-import { Con_Init, Con_SetExternals } from './console.js';
+import { Con_Init, Con_SetExternals, Con_Printf as RealConPrintf, Con_DPrintf as RealConDPrintf } from './console.js';
 import { M_Init, M_SetExternals } from './menu.js';
 import { PR_Init, ED_NewString } from './pr_edict.js';
 import { Mod_Init, Mod_ClearAll } from './gl_model.js';
@@ -288,6 +288,10 @@ export async function Host_Init( parms ) {
 
 	Key_Init();
 	Con_Init();
+
+	// Wire up the real console print functions so all modules use the actual console
+	Con_SetPrintFunctions( RealConPrintf, RealConDPrintf );
+
 	M_Init();
 	PR_Init();
 	Mod_Init();

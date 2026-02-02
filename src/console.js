@@ -2,7 +2,6 @@
 
 import { Cmd_AddCommand } from './cmd.js';
 import { Cvar_RegisterVariable } from './cvar.js';
-import { Sys_Printf } from './sys.js';
 import { key_dest, set_key_dest, key_game, key_console, key_message,
 	key_lines, edit_line, key_linepos } from './keys.js';
 
@@ -411,9 +410,6 @@ export function Con_Printf( ...args ) {
 
 	}
 
-	// also echo to debugging console
-	Sys_Printf( msg );
-
 	if ( ! con_initialized )
 		return;
 
@@ -520,17 +516,6 @@ Con_DrawNotify
 Draws the last few lines of output transparently over the game top
 ================
 */
-// DEBUG: Expose internal state for debugging
-export function Con_DebugState() {
-	return {
-		con_current,
-		con_x,
-		con_times: Array.from( con_times ),
-		realtime: _getRealtime(),
-		con_notifytime: con_notifytime.value
-	};
-}
-
 export function Con_DrawNotify() {
 
 	if ( ! _Draw_Character ) return;

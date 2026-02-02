@@ -711,20 +711,45 @@ export function COM_CheckParm( parm ) {
 }
 
 //============================================================================
-// Console print stub (will be replaced when console is initialized)
+// Console print stub (routes to real console when initialized)
 //============================================================================
+
+let _realConPrintf = null;
+let _realConDPrintf = null;
+
+export function Con_SetPrintFunctions( conPrintf, conDPrintf ) {
+
+	_realConPrintf = conPrintf;
+	_realConDPrintf = conDPrintf;
+
+}
 
 export function Con_Printf( fmt, ...args ) {
 
-	// TODO: route to actual console when initialized
-	console.log( fmt, ...args );
+	if ( _realConPrintf !== null ) {
+
+		_realConPrintf( fmt, ...args );
+
+	} else {
+
+		// Fallback before console is initialized
+		console.log( fmt, ...args );
+
+	}
 
 }
 
 export function Con_DPrintf( fmt, ...args ) {
 
-	// debug printf - only prints when developer cvar is set
-	// TODO: check developer cvar
-	console.debug( fmt, ...args );
+	if ( _realConDPrintf !== null ) {
+
+		_realConDPrintf( fmt, ...args );
+
+	} else {
+
+		// debug printf - only prints when developer cvar is set
+		console.debug( fmt, ...args );
+
+	}
 
 }
