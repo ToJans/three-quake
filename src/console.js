@@ -515,7 +515,11 @@ export function Con_DrawNotify() {
 
 	if ( ! _Draw_Character ) return;
 
+	// DEBUG: Always draw a test character at top-left to verify drawing works
+	_Draw_Character( 8, 0, 65 ); // 'A'
+
 	let v = 0;
+	const realtime = _getRealtime();
 
 	for ( let i = con_current - NUM_CON_TIMES + 1; i <= con_current; i ++ ) {
 
@@ -526,7 +530,8 @@ export function Con_DrawNotify() {
 		if ( time === 0 )
 			continue;
 
-		if ( _getRealtime() - time > con_notifytime.value )
+		const age = realtime - time;
+		if ( age > con_notifytime.value )
 			continue;
 
 		const textStart = ( i % con_totallines ) * con_linewidth;
