@@ -255,8 +255,21 @@ async function handleSession( wt, address ) {
 
 			case LOBBY_JOIN: {
 				// Get room info so client knows which port to connect to
-				const roomId = new TextDecoder().decode( msg.data ).trim();
-				const room = RoomManager_GetRoom( roomId );
+				const roomId = new TextDecoder().decode( msg.data ).trim().toUpperCase();
+				let room = RoomManager_GetRoom( roomId );
+
+				// Auto-create room for shared Twitter link (3LUVYX)
+				if ( room === null && roomId === '3LUVYX' ) {
+					Sys_Printf( 'Auto-creating shared room for link: %s\n', roomId );
+					const result = await RoomManager_CreateRoom( {
+						map: 'rapture1',
+						maxPlayers: 16,
+						hostName: 'Shared',
+					} );
+					if ( result !== null ) {
+						room = RoomManager_GetRoom( result.id );
+					}
+				}
 
 				if ( room === null ) {
 					const errorMsg = 'Room not found. The game may have ended.';

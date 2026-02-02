@@ -17,6 +17,7 @@ interface RoomProcess {
 	process: Deno.ChildProcess;
 	createdAt: number;
 	playerCount: number;
+	lastActiveTime: number;  // Last time room had players (for idle cleanup)
 }
 
 // Active room processes
@@ -100,11 +101,22 @@ export async function RoomManager_CreateRoom( config: {
 
 	Sys_Printf( 'Creating room %s on port %d (map: %s)\n', id, port, config.map );
 
+	// Mark port as used BEFORE spawning (will be freed on failure)
+	usedPorts.add( port );
+
 	try {
 		// Find the path to the game server script
 		const serverDir = new URL( '.', import.meta.url ).pathname;
 		const gameServerPath = serverDir + 'game_server.js';
 		const denoJsonPath = serverDir.replace( /server\/$/, 'deno.json' );
+
+		// Validate map name - only allow alphanumeric and underscore
+		const safeMap = config.map.replace( /[^a-zA-Z0-9_]/g, '' );
+		if ( safeMap !== config.map || safeMap.length === 0 ) {
+			Sys_Printf( 'Invalid map name: %s\n', config.map );
+			usedPorts.delete( port );
+			return null;
+		}
 
 		// Spawn dedicated server process for this room
 		const command = new Deno.Command( denoPath, {
@@ -117,7 +129,7 @@ export async function RoomManager_CreateRoom( config: {
 				gameServerPath,
 				'-port', String( port ),
 				'-maxclients', String( config.maxPlayers ),
-				'-map', config.map,
+				'-map', safeMap,
 				'-pak', pakPath,
 				'-cert', certFile,
 				'-key', keyFile,
@@ -129,23 +141,23 @@ export async function RoomManager_CreateRoom( config: {
 
 		const process = command.spawn();
 
-		// Mark port as used
-		usedPorts.add( port );
-
 		// Store room info
+		const now = Date.now();
 		const roomInfo: RoomProcess = {
 			id,
-			map: config.map,
+			map: safeMap,
 			port,
 			maxPlayers: config.maxPlayers,
 			hostName: config.hostName,
 			process,
-			createdAt: Date.now(),
+			createdAt: now,
 			playerCount: 0,
+			lastActiveTime: now,  // Initialize to creation time
 		};
 		roomProcesses.set( id, roomInfo );
 
 		// Pipe stdout/stderr to main server console with prefix
+		// Also parse heartbeat messages to track player count
 		( async () => {
 			const reader = process.stdout.getReader();
 			const decoder = new TextDecoder();
@@ -157,6 +169,36 @@ export async function RoomManager_CreateRoom( config: {
 					for ( const line of text.split( '\n' ) ) {
 						if ( line.trim() !== '' ) {
 							Sys_Printf( '[Room %s] %s\n', id, line );
+
+							// Parse heartbeat messages: "[Heartbeat] time=X frames=Y players=Z"
+							const heartbeatMatch = line.match( /\[Heartbeat\].*players=(\d+)/ );
+							if ( heartbeatMatch !== null ) {
+								const playerCount = parseInt( heartbeatMatch[ 1 ], 10 );
+								const room = roomProcesses.get( id );
+								if ( room !== undefined ) {
+									room.playerCount = playerCount;
+									if ( playerCount > 0 ) {
+										room.lastActiveTime = Date.now();
+									}
+								}
+							}
+
+							// Parse player connect/disconnect for immediate updates
+							// "Client X connected" - player joined
+							if ( line.includes( ' connected' ) && line.includes( 'Client ' ) ) {
+								const room = roomProcesses.get( id );
+								if ( room !== undefined ) {
+									room.playerCount++;
+									room.lastActiveTime = Date.now();
+								}
+							}
+							// "Client player removed" - player left
+							if ( line.includes( 'removed' ) && line.includes( 'Client ' ) ) {
+								const room = roomProcesses.get( id );
+								if ( room !== undefined && room.playerCount > 0 ) {
+									room.playerCount--;
+								}
+							}
 						}
 					}
 				}
@@ -196,6 +238,7 @@ export async function RoomManager_CreateRoom( config: {
 
 	} catch ( error ) {
 		Sys_Printf( 'Failed to create room: %s\n', ( error as Error ).message );
+		usedPorts.delete( port );  // Free the port on failure
 		return null;
 	}
 }
@@ -267,6 +310,9 @@ export function RoomManager_UpdatePlayerCount( id: string, count: number ): void
 	const room = roomProcesses.get( id );
 	if ( room != null ) {
 		room.playerCount = count;
+		if ( count > 0 ) {
+			room.lastActiveTime = Date.now();
+		}
 	}
 }
 
@@ -300,10 +346,10 @@ export function RoomManager_CleanupIdleRooms( maxIdleMs: number = 5 * 60 * 1000 
 
 	for ( const [ id, room ] of roomProcesses ) {
 		// Check if room has been idle (0 players) for too long
-		// For now, we rely on the room process to self-terminate
-		// In the future, we could add health checks
-		if ( room.playerCount === 0 && ( now - room.createdAt ) > maxIdleMs ) {
-			Sys_Printf( 'Room %s idle for too long, terminating\n', id );
+		// Uses lastActiveTime which tracks when room last had players
+		const idleTime = now - room.lastActiveTime;
+		if ( room.playerCount === 0 && idleTime > maxIdleMs ) {
+			Sys_Printf( 'Room %s idle for %ds, terminating\n', id, Math.floor( idleTime / 1000 ) );
 			RoomManager_TerminateRoom( id );
 			cleaned++;
 		}
