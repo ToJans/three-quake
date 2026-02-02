@@ -625,8 +625,9 @@ export function WT_QSendMessage(
 	// Send asynchronously
 	conn.reliableWriter.write(frame).catch((err) => {
 		Sys_Printf('WT_QSendMessage: write FAILED: %s\n', (err as Error).message);
+		// Only set conn.connected = false, NOT sock.disconnected
+		// sock.disconnected is managed by the Quake network layer via SV_DropClient -> NET_Close
 		conn.connected = false;
-		sock.disconnected = true;
 	});
 
 	return 1;
