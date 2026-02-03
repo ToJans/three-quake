@@ -210,42 +210,43 @@ export const gl_max_size = new cvar_t( 'gl_max_size', '1024' );
 
 //============================================================================
 // HQ Visual Fidelity Cvars (cg_hq_*)
+//
+// Master bitmask: bit 0=SSR, bit 1=AO, bit 2=Bloom, bit 3=Tonemapping
+// Individual cvars: 0=use cg_hq bitmask, 1=force on, -1=force off
 //============================================================================
 
-// Master bitmask: bit 0=SSR, bit 1=AO, bit 2=Bloom, bit 3=Tonemapping
-export const cg_hq = new cvar_t( 'cg_hq', '15', true ); // bitmask: 1=SSR, 2=AO, 4=Bloom, 8=Tonemapping (15=all on)
+export const cg_hq = new cvar_t( 'cg_hq', '15', true ); // 15 = all on
 
-// Individual feature toggles
-export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true ); // Ambient Occlusion (0=use cg_hq, 1=force on, -1=force off)
-export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '6', true ); // Quake units
+// SSR (bit 0)
+export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true );
+export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '64', true );
+export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true );
+export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true );
+export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true );
+export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.99', true );
+export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '0.8', true );
+export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '1.0', true );
+export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' );
+
+// AO (bit 1)
+export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true );
+export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '6', true );
 export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '0.3', true );
-export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=white, 2=AO, 3=depth, 4=normals
+export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' );
 
-// Bloom cvars
-export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom (0=use cg_hq, 1=force on, -1=force off)
+// Bloom (bit 2)
+export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true );
 export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.15', true );
 export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '0.7', true );
-export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.3', true ); // Blur spread multiplier
-export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' ); // 0=off, 1=bloom, 2=bright pass, 3=scene
+export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.3', true );
+export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' );
 
-// Tonemapping cvars
-export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true ); // HDR Tonemapping (0=use cg_hq, 1=force on, -1=force off)
-export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true ); // 0=ACES, 1=Reinhard, 2=Uncharted2
+// Tonemapping (bit 3)
+export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true );
+export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true );
 export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '2.4', true );
 export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '2.8', true );
-export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' ); // 0=off, 1=no tonemap, 2=luminance, 3=raw HDR
-
-// SSR cvars
-export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // SSR (0=use cg_hq, 1=force on, -1=force off)
-export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '64', true ); // Ray march steps
-export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true ); // Max reflection distance (Quake units)
-export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true ); // Depth tolerance (Quake units)
-export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true ); // Reflection strength
-export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.99', true ); // Floor reflectivity (0-1)
-export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '0.8', true ); // Water reflectivity (0-1)
-export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '1.0', true ); // Base reflectivity for all surfaces (0-1)
-export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' ); // 0=off, 1=SSR only, 2=mask, 3=depth, 4=scene, 5=reflectivity
-
+export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' );
 
 //============================================================================
 // v_blend -- screen blend color for damage/powerups
