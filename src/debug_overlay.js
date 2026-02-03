@@ -26,7 +26,7 @@ let activeCount = 0;
 // Fixed scale: each CSS pixel = LABEL_SCALE world units.
 // At 1.0, a 12px font = 12 world units tall (~1/5 player height).
 // Perspective handles depth scaling naturally.
-const LABEL_SCALE = 1.0;
+const LABEL_SCALE = 0.5;
 
 // Color categories for entity types
 const COLOR_DOOR = 'rgb(200, 160, 40)'; // gold

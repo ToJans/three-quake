@@ -591,11 +591,8 @@ function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture )
 
 			}
 
-			entity._playerMaterial = new THREE.MeshLambertMaterial( {
+			entity._playerMaterial = new THREE.MeshBasicMaterial( {
 				map: playerSkinTexture,
-				emissiveMap: playerSkinTexture,
-				emissive: 0xffffff,
-				emissiveIntensity: 1,
 				vertexColors: hasLighting
 			} );
 			entity._playerSkinTexture = playerSkinTexture;
@@ -635,20 +632,15 @@ function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture )
 
 	if ( texture ) {
 
-		material = new THREE.MeshLambertMaterial( {
+		material = new THREE.MeshBasicMaterial( {
 			map: texture,
-			emissiveMap: texture,
-			emissive: 0xffffff,
-			emissiveIntensity: 1,
 			vertexColors: hasLighting
 		} );
 
 	} else {
 
-		material = new THREE.MeshLambertMaterial( {
+		material = new THREE.MeshBasicMaterial( {
 			color: 0xcccccc,
-			emissive: 0xcccccc,
-			emissiveIntensity: 1,
 			vertexColors: hasLighting
 		} );
 

@@ -6,7 +6,7 @@ import { Con_Printf, Con_CheckResize, Con_DrawConsole, Con_DrawNotify, Con_Clear
 import { Sbar_Draw, Sbar_Changed, Sbar_IntermissionOverlay, Sbar_FinaleOverlay, SBAR_HEIGHT, set_sb_lines as Sbar_set_sb_lines } from './sbar.js';
 import { M_Draw } from './menu.js';
 import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFrame,
-	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetUIScale } from './gl_draw.js';
+	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import { Cvar_RegisterVariable, Cvar_Set } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { key_dest, key_game, key_console, key_message } from './keys.js';
@@ -93,20 +93,8 @@ const SIGNONS = 4;
 
 let _realVid = { width: 640, height: 480, numpages: 2, recalc_refdef: false };
 const _vid = {
-	get width() {
-
-		const dpr = window.devicePixelRatio || 1;
-		const uiScale = Draw_GetUIScale();
-		return Math.floor( _realVid.width / ( dpr * uiScale ) );
-
-	},
-	get height() {
-
-		const dpr = window.devicePixelRatio || 1;
-		const uiScale = Draw_GetUIScale();
-		return Math.floor( _realVid.height / ( dpr * uiScale ) );
-
-	},
+	get width() { return Draw_GetVirtualWidth(); },
+	get height() { return Draw_GetVirtualHeight(); },
 	get numpages() { return _realVid.numpages; },
 	set numpages( v ) { _realVid.numpages = v; },
 	get recalc_refdef() { return _realVid.recalc_refdef; },

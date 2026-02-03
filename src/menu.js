@@ -18,7 +18,7 @@ import { v_gamma } from './view.js';
 import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
 import { skill, coop, teamplay, fraglimit, timelimit, deathmatch, svs } from './server.js';
 import { Touch_ExitFullscreen } from './touch.js';
-import { Draw_GetUIScale } from './gl_draw.js';
+import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 
 /*
 ==============================================================================
@@ -213,20 +213,8 @@ let _svs = { maxclients: 1 };
 let _cl = { intermission: 0, gametype: 0 };
 let _realVid = { width: 640, height: 480 };
 const _vid = {
-	get width() {
-
-		const dpr = window.devicePixelRatio || 1;
-		const uiScale = Draw_GetUIScale();
-		return Math.floor( _realVid.width / ( dpr * uiScale ) );
-
-	},
-	get height() {
-
-		const dpr = window.devicePixelRatio || 1;
-		const uiScale = Draw_GetUIScale();
-		return Math.floor( _realVid.height / ( dpr * uiScale ) );
-
-	}
+	get width() { return Draw_GetVirtualWidth(); },
+	get height() { return Draw_GetVirtualHeight(); }
 };
 let _host_time_get = () => 0;
 let _realtime_get = () => 0;
