@@ -34,9 +34,9 @@ let screenScene = null;
 let screenCamera = null;
 
 // Parameters (controlled by cvars)
-let ssrMaxSteps = 32;
-let ssrMaxDistance = 100.0;
-let ssrThickness = 0.5;
+let ssrMaxSteps = 64;
+let ssrMaxDistance = 2000.0;
+let ssrThickness = 10.0;
 let ssrIntensity = 0.5;
 
 //============================================================================

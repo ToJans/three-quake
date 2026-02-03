@@ -236,9 +236,9 @@ export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0
 
 // SSR cvars
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // SSR (0=use cg_hq, 1=force on, -1=force off)
-export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '32', true ); // Ray march steps
-export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '100', true ); // Max reflection distance
-export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '0.5', true ); // Depth tolerance
+export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '64', true ); // Ray march steps
+export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '2000', true ); // Max reflection distance (Quake units)
+export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true ); // Depth tolerance (Quake units)
 export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true ); // Reflection strength
 export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.5', true ); // Floor reflectivity (0-1)
 export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '0.8', true ); // Water reflectivity (0-1)
