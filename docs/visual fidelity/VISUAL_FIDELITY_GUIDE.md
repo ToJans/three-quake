@@ -486,3 +486,213 @@ For best visual improvement with minimal performance cost:
 ### Texture Upscaling
 - [OpenModelDB - Game Textures](https://openmodeldb.info/?t=game-textures)
 - [AI Upscaling Article (PC Gamer)](https://www.pcgamer.com/AI-upscale-mod-list/)
+
+---
+
+## Three-Quake Implementation Details
+
+This section documents the specific implementation patterns used in this codebase for future reference.
+
+### Project Architecture
+
+```
+src/
+├── gl_rmain.js      # Main renderer, cvars, R_RenderView, scene/camera
+├── gl_rmisc.js      # R_Init, cvar registration
+├── gl_gtao.js       # GTAO post-processing (NEW)
+├── vid.js           # WebGLRenderer setup, resize handling
+├── cvar.js          # Console variable system
+└── glquake.js       # GL state, texture management
+```
+
+### Cvar System
+
+**Defining a new cvar:**
+```javascript
+// In gl_rmain.js (or relevant module)
+import { cvar_t } from './cvar.js';
+
+// cvar_t(name, default_value, archive, server)
+export const cg_hq_ao = new cvar_t('cg_hq_ao', '0', true);  // archived to localStorage
+```
+
+**Registering cvars:**
+```javascript
+// In gl_rmisc.js R_Init()
+import { cg_hq_ao } from './gl_rmain.js';
+
+_Cvar_RegisterVariable(cg_hq_ao);
+```
+
+**Reading cvar values:**
+```javascript
+if (cg_hq_ao.value !== 0) {
+    // Feature is enabled
+}
+```
+
+### Render Pipeline Integration
+
+The render pipeline in `R_RenderView()` (gl_rmain.js):
+
+```javascript
+export function R_RenderView() {
+    // 1. Clear buffers
+    R_Clear();
+
+    // 2. Render scene
+    R_RenderScene();
+    R_DrawViewModel();
+    R_DrawWaterSurfaces();
+    R_Mirror();
+
+    // 3. Three.js main render
+    renderer.render(scene, camera);
+
+    // 4. HQ post-processing (NEW)
+    R_ApplyHQEffects();  // <-- Insert post-processing here
+
+    // 5. Screen overlays (damage flash, etc.)
+    R_PolyBlend();
+}
+```
+
+### Post-Processing Pattern
+
+Each HQ effect follows this pattern:
+
+**1. Create a new module** (`src/gl_xxx.js`):
+```javascript
+// Render targets
+let renderTarget = null;
+
+// Materials with custom shaders
+let effectMaterial = null;
+
+// Screen quad for fullscreen passes
+let screenQuad = null;
+let screenScene = null;
+let screenCamera = null;
+
+export function XXX_Init() {
+    // Create render targets at screen resolution (or half)
+    renderTarget = new THREE.WebGLRenderTarget(width, height, {...});
+
+    // Create shader material
+    effectMaterial = new THREE.ShaderMaterial({
+        uniforms: {...},
+        vertexShader: `...`,
+        fragmentShader: `...`
+    });
+
+    // Create fullscreen quad
+    screenScene = new THREE.Scene();
+    screenCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    screenQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), effectMaterial);
+    screenScene.add(screenQuad);
+}
+
+export function XXX_Apply() {
+    // 1. Render G-buffer passes if needed (depth, normals)
+    renderer.setRenderTarget(depthTarget);
+    scene.overrideMaterial = depthMaterial;
+    renderer.render(scene, camera);
+    scene.overrideMaterial = null;
+
+    // 2. Apply effect shader
+    effectMaterial.uniforms.tDepth.value = depthTarget.texture;
+    screenQuad.material = effectMaterial;
+    renderer.setRenderTarget(effectTarget);
+    renderer.render(screenScene, screenCamera);
+
+    // 3. Composite back to screen
+    compositeMaterial.uniforms.tEffect.value = effectTarget.texture;
+    screenQuad.material = compositeMaterial;
+    renderer.setRenderTarget(null);
+    renderer.render(screenScene, screenCamera);
+}
+
+export function XXX_Resize(width, height) {
+    renderTarget?.setSize(width, height);
+}
+```
+
+**2. Import and integrate in gl_rmain.js**:
+```javascript
+import { XXX_Init, XXX_Apply, XXX_SetEnabled, XXX_Resize } from './gl_xxx.js';
+
+// In R_ApplyHQEffects():
+if (isHQFeatureEnabled(HQ_XXX, cg_hq_xxx)) {
+    XXX_Apply();
+}
+```
+
+**3. Hook up resize in vid.js**:
+```javascript
+import { XXX_Resize } from './gl_xxx.js';
+
+// In resize handler:
+XXX_Resize(canvas.width, canvas.height);
+```
+
+### HQ Feature Bitmask
+
+The `cg_hq` cvar uses a bitmask for bulk enabling:
+
+```javascript
+const HQ_SSR = 1;        // bit 0
+const HQ_AO = 2;         // bit 1
+const HQ_GI = 4;         // bit 2
+const HQ_BLOOM = 8;      // bit 3
+const HQ_SHADOWS = 16;   // bit 4
+const HQ_VOLUMETRIC = 32; // bit 5
+const HQ_TONEMAPPING = 64; // bit 6
+
+function isHQFeatureEnabled(bitmask, individualCvar) {
+    // Individual cvar takes precedence
+    if (individualCvar.value !== 0) return true;
+    return (cg_hq.value & bitmask) !== 0;
+}
+```
+
+### GTAO Implementation Reference
+
+The GTAO implementation (`src/gl_gtao.js`) demonstrates the complete pattern:
+
+1. **G-Buffer passes**: Depth and normals rendered with `scene.overrideMaterial`
+2. **Half-resolution AO**: Computed at 0.5x resolution for performance
+3. **Bilateral blur**: Edge-preserving blur using depth similarity weights
+4. **Temporal noise**: Uses interleaved gradient noise for stable results
+5. **Compositing**: Multiplies AO onto scene color
+
+Key shader uniforms:
+- `tDepth` - Depth buffer texture
+- `tNormal` - View-space normals texture
+- `resolution` - Screen resolution for texel calculations
+- `radius` - World-space AO radius
+- `intensity` - AO strength (1.0-2.0 typical)
+- `inverseProjectionMatrix` - For reconstructing view positions
+
+### Adding New Effects Checklist
+
+When implementing a new HQ effect:
+
+1. [ ] Create `src/gl_xxx.js` with Init/Apply/Resize/SetEnabled/Dispose functions
+2. [ ] Add `cg_hq_xxx` cvar in `gl_rmain.js`
+3. [ ] Register cvar in `gl_rmisc.js` R_Init()
+4. [ ] Import cvar in `gl_rmisc.js` imports
+5. [ ] Import effect functions in `gl_rmain.js`
+6. [ ] Add bitmask constant (HQ_XXX)
+7. [ ] Add check in `R_ApplyHQEffects()`
+8. [ ] Add resize call in `vid.js`
+9. [ ] Test with `cg_hq_xxx 1` in console
+
+### Console Commands for Testing
+
+```
+cg_hq_ao 1           # Enable GTAO
+cg_hq_ao_radius 3.0  # Increase AO radius
+cg_hq_ao_intensity 2 # Stronger AO effect
+cg_hq 2              # Enable AO via bitmask
+cg_hq 127            # Enable all features
+```

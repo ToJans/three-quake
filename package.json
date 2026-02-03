@@ -1,0 +1,19 @@
+{
+  "name": "three-quake",
+  "version": "1.0.0",
+  "description": "Quake in Three.js - A WebGL port of the classic Quake engine",
+  "type": "module",
+  "scripts": {
+    "start": "bun run serve",
+    "serve": "bun --bun serve.js",
+    "dev": "bun --bun serve.js"
+  },
+  "keywords": [
+    "quake",
+    "three.js",
+    "webgl",
+    "game"
+  ],
+  "license": "GPL-2.0",
+  "devDependencies": {}
+}

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { Sys_Error, Sys_Printf } from './sys.js';
 import { Con_Printf } from './console.js';
+import { GTAO_Resize } from './gl_gtao.js';
 
 //
 // vid.h constants
@@ -215,6 +216,9 @@ export function VID_Init( palette ) {
 		vid.recalc_refdef = 1;
 
 		renderer.setSize( canvas.width, canvas.height );
+
+		// Resize HQ post-processing buffers
+		GTAO_Resize( canvas.width, canvas.height );
 
 	} );
 

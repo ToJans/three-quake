@@ -24,6 +24,9 @@ import {
 } from './r_part.js';
 import { Debug_UpdateOverlay, Debug_ClearLabels } from './debug_overlay.js';
 import {
+	GTAO_Init, GTAO_Apply, GTAO_SetEnabled, GTAO_SetRadius, GTAO_SetIntensity, GTAO_Resize
+} from './gl_gtao.js';
+import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_lightstyle
 } from './client.js';
@@ -189,6 +192,26 @@ export const gl_reporttjunctions = new cvar_t( 'gl_reporttjunctions', '0' );
 export const gl_doubleeyes = new cvar_t( 'gl_doubleeyes', '1' );
 export const gl_ztrick = new cvar_t( 'gl_ztrick', '1' );
 export const gl_max_size = new cvar_t( 'gl_max_size', '1024' );
+
+//============================================================================
+// HQ Visual Fidelity Cvars (cg_hq_*)
+//============================================================================
+
+// Master bitmask: bit 0=SSR, bit 1=AO, bit 2=GI, bit 3=Bloom, bit 4=Shadows, bit 5=Volumetric, bit 6=Tonemapping
+export const cg_hq = new cvar_t( 'cg_hq', '0', true ); // archived
+
+// Individual feature toggles
+export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true ); // Ambient Occlusion (GTAO)
+export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '2.0', true );
+export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.5', true );
+
+// Placeholder cvars for future features (documented in visual fidelity guide)
+export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // Screen Space Reflections
+export const cg_hq_gi = new cvar_t( 'cg_hq_gi', '0', true ); // Global Illumination
+export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom
+export const cg_hq_shadows = new cvar_t( 'cg_hq_shadows', '0', true ); // Soft Shadows (PCSS)
+export const cg_hq_volumetric = new cvar_t( 'cg_hq_volumetric', '0', true ); // Volumetric Lighting
+export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true ); // HDR Tonemapping
 
 //============================================================================
 // v_blend -- screen blend color for damage/powerups
@@ -883,6 +906,76 @@ export function R_PolyBlend() {
 }
 
 //============================================================================
+// R_ApplyHQEffects
+//
+// Applies HQ visual fidelity post-processing effects based on cg_hq cvars.
+// Checks both master bitmask (cg_hq) and individual toggles (cg_hq_*).
+//============================================================================
+
+// Bitmask constants for cg_hq
+const HQ_SSR = 1;        // bit 0
+const HQ_AO = 2;         // bit 1
+const HQ_GI = 4;         // bit 2
+const HQ_BLOOM = 8;      // bit 3
+const HQ_SHADOWS = 16;   // bit 4
+const HQ_VOLUMETRIC = 32; // bit 5
+const HQ_TONEMAPPING = 64; // bit 6
+
+let _lastAOEnabled = false;
+let _lastAORadius = - 1;
+let _lastAOIntensity = - 1;
+
+function isHQFeatureEnabled( bitmask, individualCvar ) {
+
+	// Individual cvar takes precedence if explicitly set to non-zero
+	if ( individualCvar.value !== 0 ) return true;
+
+	// Otherwise check the master bitmask
+	return ( cg_hq.value & bitmask ) !== 0;
+
+}
+
+function R_ApplyHQEffects() {
+
+	// Update GTAO settings if changed
+	const aoEnabled = isHQFeatureEnabled( HQ_AO, cg_hq_ao );
+
+	if ( aoEnabled !== _lastAOEnabled ) {
+
+		GTAO_SetEnabled( aoEnabled );
+		_lastAOEnabled = aoEnabled;
+
+	}
+
+	if ( aoEnabled ) {
+
+		if ( cg_hq_ao_radius.value !== _lastAORadius ) {
+
+			GTAO_SetRadius( cg_hq_ao_radius.value );
+			_lastAORadius = cg_hq_ao_radius.value;
+
+		}
+
+		if ( cg_hq_ao_intensity.value !== _lastAOIntensity ) {
+
+			GTAO_SetIntensity( cg_hq_ao_intensity.value );
+			_lastAOIntensity = cg_hq_ao_intensity.value;
+
+		}
+
+		// Apply GTAO
+		GTAO_Apply();
+
+	}
+
+	// Future: add other HQ effects here
+	// if (isHQFeatureEnabled(HQ_SSR, cg_hq_ssr)) { SSR_Apply(); }
+	// if (isHQFeatureEnabled(HQ_BLOOM, cg_hq_bloom)) { Bloom_Apply(); }
+	// etc.
+
+}
+
+//============================================================================
 // R_RenderScene
 //
 // r_refdef must be set before the first call
@@ -972,6 +1065,9 @@ export function R_RenderView() {
 		renderer.render( scene, camera );
 
 	}
+
+	// Apply HQ post-processing effects
+	R_ApplyHQEffects();
 
 	// Draw screen blend overlay AFTER main scene (damage flash, powerups, underwater tint)
 	R_PolyBlend();
