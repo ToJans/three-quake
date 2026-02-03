@@ -30,7 +30,12 @@ import {
 	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
 	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB,
-	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE
+	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
+	svc_packetentities, svc_deltapacketentities, svc_serversequence,
+	PE_ENT_BITS, PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
+	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
+	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
+	MAX_PACKET_ENTITIES, PE_UPDATE_MASK
 } from './protocol.js';
 import {
 	sv, svs, ss_loading, ss_active,
@@ -610,134 +615,245 @@ function SV_FatPVS( org ) {
 }
 
 /*
+==================
+SV_WriteDelta
+
+Writes part of a packetentities message.
+Can delta from either a baseline or a previous packet_entity.
+Ported from: QW/server/sv_ents.c
+==================
+*/
+function SV_WriteDelta( from, to, msg, force ) {
+
+	// send an update
+	let bits = 0;
+
+	for ( let i = 0; i < 3; i ++ ) {
+
+		const miss = to.origin[ i ] - from.origin[ i ];
+		if ( miss < - 0.1 || miss > 0.1 )
+			bits |= PE_ORIGIN1 << i;
+
+	}
+
+	if ( to.angles[ 0 ] !== from.angles[ 0 ] )
+		bits |= PE_ANGLE1;
+
+	if ( to.angles[ 1 ] !== from.angles[ 1 ] )
+		bits |= PE_ANGLE2;
+
+	if ( to.angles[ 2 ] !== from.angles[ 2 ] )
+		bits |= PE_ANGLE3;
+
+	if ( to.colormap !== from.colormap )
+		bits |= PE_COLORMAP;
+
+	if ( to.skin !== from.skin )
+		bits |= PE_SKIN;
+
+	if ( to.frame !== from.frame )
+		bits |= PE_FRAME;
+
+	if ( to.effects !== from.effects )
+		bits |= PE_EFFECTS;
+
+	if ( to.modelindex !== from.modelindex )
+		bits |= PE_MODEL;
+
+	if ( to.flags & PE_SOLID )
+		bits |= PE_SOLID;
+
+	// Check if morebits byte is needed (any of the lower-byte flags set)
+	if ( bits & 0xFF )
+		bits |= PE_MOREBITS;
+
+	//
+	// write the message
+	//
+	if ( to.number === 0 )
+		Sys_Error( 'SV_WriteDelta: unset entity number' );
+	if ( to.number > PE_ENT_MASK )
+		Sys_Error( 'SV_WriteDelta: entity number > ' + PE_ENT_MASK );
+
+	if ( bits === 0 && ! force )
+		return; // nothing to send!
+
+	const i = to.number | ( bits & ~PE_ENT_MASK );
+	if ( i & PE_REMOVE )
+		Sys_Error( 'SV_WriteDelta: PE_REMOVE' );
+	MSG_WriteShort( msg, i );
+
+	if ( bits & PE_MOREBITS )
+		MSG_WriteByte( msg, bits & 0xFF );
+	if ( bits & PE_MODEL )
+		MSG_WriteByte( msg, to.modelindex );
+	if ( bits & PE_FRAME )
+		MSG_WriteByte( msg, to.frame );
+	if ( bits & PE_COLORMAP )
+		MSG_WriteByte( msg, to.colormap );
+	if ( bits & PE_SKIN )
+		MSG_WriteByte( msg, to.skin );
+	if ( bits & PE_EFFECTS )
+		MSG_WriteByte( msg, to.effects );
+	if ( bits & PE_ORIGIN1 )
+		MSG_WriteCoord( msg, to.origin[ 0 ] );
+	if ( bits & PE_ANGLE1 )
+		MSG_WriteAngle( msg, to.angles[ 0 ] );
+	if ( bits & PE_ORIGIN2 )
+		MSG_WriteCoord( msg, to.origin[ 1 ] );
+	if ( bits & PE_ANGLE2 )
+		MSG_WriteAngle( msg, to.angles[ 1 ] );
+	if ( bits & PE_ORIGIN3 )
+		MSG_WriteCoord( msg, to.origin[ 2 ] );
+	if ( bits & PE_ANGLE3 )
+		MSG_WriteAngle( msg, to.angles[ 2 ] );
+
+}
+
+/*
 =============
-SV_WriteEntitiesToClient
+SV_EmitPacketEntities
+
+Writes a delta update of a packet_entities_t to the message.
+Ported from: QW/server/sv_ents.c
 =============
 */
-function SV_WriteEntitiesToClient( clent, msg ) {
+function SV_EmitPacketEntities( client, to, msg ) {
 
-	// find the client's PVS
-	const org = new Float32Array( 3 );
-	VectorAdd( clent.v.origin, clent.v.view_ofs, org );
-	const pvs = SV_FatPVS( org );
+	let from;
+	let oldmax;
 
-	// send over all entities (except the client) that touch the pvs
-	let ent = NEXT_EDICT( sv.edicts[ 0 ] );
-	for ( let e = 1; e < sv.num_edicts; e ++, ent = NEXT_EDICT( ent ) ) {
+	// this is the frame that we are going to delta update from
+	if ( client.delta_sequence !== - 1 ) {
 
-		// ignore ents without visible models (unless it's the client itself)
-		// clent is ALWAYS sent
-		if ( ent !== clent ) {
+		const fromframe = client.frames[ client.delta_sequence & PE_UPDATE_MASK ];
+		from = fromframe.entities;
+		oldmax = from.num_entities;
 
-			// Check modelindex and that model string is not empty
-			// Original C: !ent->v.modelindex || !pr_strings[ent->v.model]
-			// IMPORTANT: Use explicit checks per CLAUDE.md rules
-			if ( ent.v.modelindex === 0 || PR_GetString( ent.v.model ) === '' )
-				continue;
+		MSG_WriteByte( msg, svc_deltapacketentities );
+		MSG_WriteByte( msg, client.delta_sequence );
 
-			// PVS check — skip entities not in client's PVS
-			// Check if any of the entity's leafs are visible
-			let i;
-			for ( i = 0; i < ent.num_leafs; i ++ ) {
+	} else {
 
-				const leafnum = ent.leafnums[ i ];
-				if ( pvs[ leafnum >> 3 ] & ( 1 << ( leafnum & 7 ) ) )
-					break; // found a visible leaf
+		oldmax = 0; // no delta update
+		from = null;
+
+		MSG_WriteByte( msg, svc_packetentities );
+
+	}
+
+	let newindex = 0;
+	let oldindex = 0;
+
+	while ( newindex < to.num_entities || oldindex < oldmax ) {
+
+		const newnum = newindex >= to.num_entities ? 9999 : to.entities[ newindex ].number;
+		const oldnum = oldindex >= oldmax ? 9999 : from.entities[ oldindex ].number;
+
+		if ( newnum === oldnum ) {
+
+			// delta update from old position
+			SV_WriteDelta( from.entities[ oldindex ], to.entities[ newindex ], msg, false );
+			oldindex ++;
+			newindex ++;
+			continue;
+
+		}
+
+		if ( newnum < oldnum ) {
+
+			// this is a new entity, send it from the baseline
+			const ent = EDICT_NUM( newnum );
+			SV_WriteDelta( ent.baseline, to.entities[ newindex ], msg, true );
+			newindex ++;
+			continue;
+
+		}
+
+		if ( newnum > oldnum ) {
+
+			// the old entity isn't present in the new message
+			MSG_WriteShort( msg, oldnum | PE_REMOVE );
+			oldindex ++;
+			continue;
+
+		}
+
+	}
+
+	MSG_WriteShort( msg, 0 ); // end of packetentities
+
+}
+
+/*
+=============
+SV_WriteEntitiesToClient
+
+Encodes the current state of the world as a svc_packetentities message.
+Ported from: QW/server/sv_ents.c
+=============
+*/
+function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
+
+	// this is the frame we are creating
+	const frame = client.frames[ client.outgoing_sequence & PE_UPDATE_MASK ];
+
+	// put visible entities into the packet_entities snapshot
+	const pack = frame.entities;
+	pack.num_entities = 0;
+
+	// skip player entities (handled by svc_playerinfo), start after maxclients
+	for ( let e = svs.maxclients + 1; e < sv.num_edicts; e ++ ) {
+
+		const ent = EDICT_NUM( e );
+
+		// ignore ents without visible models
+		if ( ent.v.modelindex === 0 || PR_GetString( ent.v.model ) === '' )
+			continue;
+
+		// PVS check - ignore if not touching a PV leaf
+		let visible = false;
+		for ( let i = 0; i < ent.num_leafs; i ++ ) {
+
+			const leafnum = ent.leafnums[ i ];
+			if ( pvs[ leafnum >> 3 ] & ( 1 << ( leafnum & 7 ) ) ) {
+
+				visible = true;
+				break;
 
 			}
 
-			if ( i === ent.num_leafs )
-				continue; // not visible
-
 		}
 
-		if ( msg.maxsize - msg.cursize < 16 ) {
+		if ( ! visible )
+			continue;
 
-			Con_Printf( 'packet overflow\n' );
-			return;
+		// add to the packetentities
+		if ( pack.num_entities >= MAX_PACKET_ENTITIES )
+			continue; // all full
 
-		}
+		const state = pack.entities[ pack.num_entities ];
+		pack.num_entities ++;
 
-		// send an update
-		let bits = 0;
-
-		for ( let i = 0; i < 3; i ++ ) {
-
-			const miss = ent.v.origin[ i ] - ent.baseline.origin[ i ];
-			if ( miss < - 0.1 || miss > 0.1 )
-				bits |= U_ORIGIN1 << i;
-
-		}
-
-		if ( ent.v.angles[ 0 ] !== ent.baseline.angles[ 0 ] )
-			bits |= U_ANGLE1;
-
-		if ( ent.v.angles[ 1 ] !== ent.baseline.angles[ 1 ] )
-			bits |= U_ANGLE2;
-
-		if ( ent.v.angles[ 2 ] !== ent.baseline.angles[ 2 ] )
-			bits |= U_ANGLE3;
-
-		if ( ent.v.movetype === MOVETYPE_STEP )
-			bits |= U_NOLERP; // don't mess up the step animation
-
-		if ( ent.baseline.colormap !== ent.v.colormap )
-			bits |= U_COLORMAP;
-
-		if ( ent.baseline.skin !== ent.v.skin )
-			bits |= U_SKIN;
-
-		if ( ent.baseline.frame !== ent.v.frame )
-			bits |= U_FRAME;
-
-		if ( ent.baseline.effects !== ent.v.effects )
-			bits |= U_EFFECTS;
-
-		if ( ent.baseline.modelindex !== ent.v.modelindex )
-			bits |= U_MODEL;
-
-		if ( e >= 256 )
-			bits |= U_LONGENTITY;
-
-		if ( bits >= 256 )
-			bits |= U_MOREBITS;
-
-		//
-		// write the message
-		//
-		MSG_WriteByte( msg, bits | U_SIGNAL );
-
-		if ( bits & U_MOREBITS )
-			MSG_WriteByte( msg, bits >> 8 );
-		if ( bits & U_LONGENTITY )
-			MSG_WriteShort( msg, e );
-		else
-			MSG_WriteByte( msg, e );
-
-		if ( bits & U_MODEL )
-			MSG_WriteByte( msg, ent.v.modelindex );
-		if ( bits & U_FRAME )
-			MSG_WriteByte( msg, ent.v.frame );
-		if ( bits & U_COLORMAP )
-			MSG_WriteByte( msg, ent.v.colormap );
-		if ( bits & U_SKIN )
-			MSG_WriteByte( msg, ent.v.skin );
-		if ( bits & U_EFFECTS )
-			MSG_WriteByte( msg, ent.v.effects );
-		if ( bits & U_ORIGIN1 )
-			MSG_WriteCoord( msg, ent.v.origin[ 0 ] );
-		if ( bits & U_ANGLE1 )
-			MSG_WriteAngle( msg, ent.v.angles[ 0 ] );
-		if ( bits & U_ORIGIN2 )
-			MSG_WriteCoord( msg, ent.v.origin[ 1 ] );
-		if ( bits & U_ANGLE2 )
-			MSG_WriteAngle( msg, ent.v.angles[ 1 ] );
-		if ( bits & U_ORIGIN3 )
-			MSG_WriteCoord( msg, ent.v.origin[ 2 ] );
-		if ( bits & U_ANGLE3 )
-			MSG_WriteAngle( msg, ent.v.angles[ 2 ] );
+		state.number = e;
+		state.flags = 0;
+		state.origin[ 0 ] = ent.v.origin[ 0 ];
+		state.origin[ 1 ] = ent.v.origin[ 1 ];
+		state.origin[ 2 ] = ent.v.origin[ 2 ];
+		state.angles[ 0 ] = ent.v.angles[ 0 ];
+		state.angles[ 1 ] = ent.v.angles[ 1 ];
+		state.angles[ 2 ] = ent.v.angles[ 2 ];
+		state.modelindex = ent.v.modelindex;
+		state.frame = ent.v.frame;
+		state.colormap = ent.v.colormap;
+		state.skin = ent.v.skin;
+		state.effects = ent.v.effects;
 
 	}
+
+	// encode the packet entities as a delta from the
+	// last packetentities acknowledged by the client
+	SV_EmitPacketEntities( client, pack, msg );
 
 }
 
@@ -935,6 +1051,17 @@ const nullcmd = {
 	impulse: 0
 };
 
+// Cached player command for SV_WritePlayersToClient (avoid per-frame allocations)
+const _playerCmd = {
+	msec: 0,
+	angles: new Float32Array( 3 ),
+	forwardmove: 0,
+	sidemove: 0,
+	upmove: 0,
+	buttons: 0,
+	impulse: 0
+};
+
 // Player model index for checking if model changed
 let sv_playermodel = 0;
 
@@ -957,7 +1084,7 @@ function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 	for ( let j = 0; j < svs.maxclients; j ++ ) {
 
 		const cl = svs.clients[ j ];
-		if ( ! cl.active || ! cl.spawned )
+		if ( cl.active === false || cl.spawned === false )
 			continue;
 
 		const ent = cl.edict;
@@ -1033,16 +1160,14 @@ function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 
 		if ( pflags & PF_COMMAND ) {
 
-			// Get the client's last command
-			const cmd = {
-				msec: 0,
-				angles: new Float32Array( 3 ),
-				forwardmove: cl.lastcmd ? cl.lastcmd.forwardmove : 0,
-				sidemove: cl.lastcmd ? cl.lastcmd.sidemove : 0,
-				upmove: cl.lastcmd ? cl.lastcmd.upmove : 0,
-				buttons: 0, // never send buttons
-				impulse: 0 // never send impulse
-			};
+			// Get the client's last command (reuse cached object)
+			_playerCmd.msec = 0;
+			_playerCmd.forwardmove = cl.lastcmd != null ? cl.lastcmd.forwardmove : 0;
+			_playerCmd.sidemove = cl.lastcmd != null ? cl.lastcmd.sidemove : 0;
+			_playerCmd.upmove = cl.lastcmd != null ? cl.lastcmd.upmove : 0;
+			_playerCmd.buttons = 0;
+			_playerCmd.impulse = 0;
+			const cmd = _playerCmd;
 
 			// Copy angles from edict if dead (don't show corpse looking around)
 			if ( ent.v.health <= 0 ) {
@@ -1091,33 +1216,44 @@ function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 SV_SendClientDatagram
 =======================
 */
+// Cached buffers for SV_SendClientDatagram (avoid per-frame allocations)
+const _scdBuf = new Uint8Array( MAX_DATAGRAM );
+const _scdMsg = { allowoverflow: false, overflowed: false, data: _scdBuf, maxsize: MAX_DATAGRAM, cursize: 0 };
+const _scdOrg = new Float32Array( 3 );
+
 function SV_SendClientDatagram( client ) {
 
-	const buf = new Uint8Array( MAX_DATAGRAM );
-	const msg = { allowoverflow: false, overflowed: false, data: buf, maxsize: MAX_DATAGRAM, cursize: 0 };
+	_scdMsg.allowoverflow = false;
+	_scdMsg.overflowed = false;
+	_scdMsg.cursize = 0;
 
-	MSG_WriteByte( msg, svc_time );
-	MSG_WriteFloat( msg, sv.time );
+	MSG_WriteByte( _scdMsg, svc_time );
+	MSG_WriteFloat( _scdMsg, sv.time );
 
-	SV_WriteClientdataToMessage( client.edict, msg );
+	// Write server sequence number for delta compression
+	MSG_WriteByte( _scdMsg, svc_serversequence );
+	MSG_WriteLong( _scdMsg, client.outgoing_sequence );
+
+	SV_WriteClientdataToMessage( client.edict, _scdMsg );
 
 	// Send player info for other players (QuakeWorld-style prediction)
-	const org = new Float32Array( 3 );
-	VectorAdd( client.edict.v.origin, client.edict.v.view_ofs, org );
-	const pvs = SV_FatPVS( org );
-	SV_WritePlayersToClient( client, client.edict, pvs, msg );
+	VectorAdd( client.edict.v.origin, client.edict.v.view_ofs, _scdOrg );
+	const pvs = SV_FatPVS( _scdOrg );
+	SV_WritePlayersToClient( client, client.edict, pvs, _scdMsg );
 
-	SV_WriteEntitiesToClient( client.edict, msg );
+	// QW-style delta-compressed entity updates
+	SV_WriteEntitiesToClient( client, client.edict, pvs, _scdMsg );
 
 	// copy the server datagram if there is space
-	if ( msg.cursize + sv.datagram.cursize < msg.maxsize )
-		SZ_Write( msg, sv.datagram.data, sv.datagram.cursize );
+	if ( _scdMsg.cursize + sv.datagram.cursize < _scdMsg.maxsize )
+		SZ_Write( _scdMsg, sv.datagram.data, sv.datagram.cursize );
 
-	// Debug: log datagram being sent
-	// console.log( 'SV_SendClientDatagram: sending ' + msg.cursize + ' bytes to client' );
+	// Record frame senttime and increment sequence
+	client.frames[ client.outgoing_sequence & PE_UPDATE_MASK ].senttime = sv.time;
+	client.outgoing_sequence ++;
 
 	// send the datagram
-	if ( NET_SendUnreliableMessage( client.netconnection, msg ) === - 1 ) {
+	if ( NET_SendUnreliableMessage( client.netconnection, _scdMsg ) === - 1 ) {
 
 		SV_DropClient( true );
 		return false;

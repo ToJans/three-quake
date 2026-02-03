@@ -129,6 +129,8 @@ export class entity_state_t {
 
 	constructor() {
 
+		this.number = 0; // entity number (QW delta compression)
+		this.flags = 0; // PE_SOLID etc. (QW delta compression)
 		this.origin = new Float32Array( 3 );
 		this.angles = new Float32Array( 3 );
 		this.modelindex = 0;
@@ -136,6 +138,24 @@ export class entity_state_t {
 		this.colormap = 0;
 		this.skin = 0;
 		this.effects = 0;
+
+	}
+
+	copyFrom( other ) {
+
+		this.number = other.number;
+		this.flags = other.flags;
+		this.origin[ 0 ] = other.origin[ 0 ];
+		this.origin[ 1 ] = other.origin[ 1 ];
+		this.origin[ 2 ] = other.origin[ 2 ];
+		this.angles[ 0 ] = other.angles[ 0 ];
+		this.angles[ 1 ] = other.angles[ 1 ];
+		this.angles[ 2 ] = other.angles[ 2 ];
+		this.modelindex = other.modelindex;
+		this.frame = other.frame;
+		this.colormap = other.colormap;
+		this.skin = other.skin;
+		this.effects = other.effects;
 
 	}
 

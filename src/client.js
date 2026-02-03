@@ -1,9 +1,9 @@
 // Ported from: WinQuake/client.h -- client structures and definitions
 
 import { MAX_STYLESTRING, MAX_CL_STATS, MAX_SCOREBOARD, MAX_SCOREBOARDNAME,
-	MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES } from './quakedef.js';
+	MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES, entity_state_t } from './quakedef.js';
 import { sizebuf_t } from './common.js';
-import { entity_state_t } from './quakedef.js';
+import { MAX_PACKET_ENTITIES } from './protocol.js';
 
 //=============================================================================
 
@@ -126,6 +126,26 @@ export class kbutton_t {
 
 		this.down = new Int32Array( 2 ); // key nums holding it down
 		this.state = 0; // low bit is down state
+
+	}
+
+}
+
+//
+// packet_entities_t - QW-style delta compressed entity snapshot
+// Ported from: QW/client/protocol.h
+//
+export class packet_entities_t {
+
+	constructor() {
+
+		this.num_entities = 0;
+		this.entities = [];
+		for ( let i = 0; i < MAX_PACKET_ENTITIES; i ++ ) {
+
+			this.entities.push( new entity_state_t() );
+
+		}
 
 	}
 

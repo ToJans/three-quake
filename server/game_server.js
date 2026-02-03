@@ -9,7 +9,7 @@ import { COM_InitArgv } from '../src/common.js';
 import { COM_FetchPak, COM_AddPack, COM_PreloadMaps } from '../src/pak.js';
 import { Cbuf_Init, Cbuf_Execute, Cbuf_AddText, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host.js';
-import { deathmatch, samelevel, noexit } from '../src/host.js';
+import { deathmatch, samelevel, noexit, sys_ticrate } from '../src/host.js';
 import { cls, ca_dedicated } from '../src/client.js';
 import { Memory_Init } from '../src/zone.js';
 import { PR_Init } from '../src/pr_edict.js';
@@ -56,7 +56,6 @@ const CONFIG = {
 	port: 4433,
 	certFile: '/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem',
 	keyFile: '/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem',
-	tickRate: 60,  // 60Hz - balance between CPU usage and responsiveness (original used 20Hz + client interpolation)
 	maxClients: 16,
 	defaultMap: 'start',
 	roomId: null,        // Room ID if spawned by lobby server
@@ -346,10 +345,11 @@ function Host_ServerFrame() {
  * Main server loop
  */
 async function runServerLoop() {
-	const tickInterval = 1000 / CONFIG.tickRate;
 	oldrealtime = Sys_FloatTime();
 
-	Sys_Printf('Starting server loop at ' + CONFIG.tickRate + ' Hz...\n');
+	const ticrate = sys_ticrate.value; // default 0.05 = 20Hz
+	const tickInterval = ticrate * 1000;
+	Sys_Printf('Starting server loop at ' + ( 1 / ticrate ) + ' Hz (sys_ticrate ' + ticrate + ')...\n');
 
 	setInterval(() => {
 		try {

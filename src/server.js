@@ -1,7 +1,8 @@
 // Ported from: WinQuake/server.h -- server structures and constants
 
-import { MAX_MODELS, MAX_SOUNDS, MAX_LIGHTSTYLES, MAX_DATAGRAM, MAX_MSGLEN, MAX_EDICTS } from './quakedef.js';
+import { MAX_MODELS, MAX_SOUNDS, MAX_LIGHTSTYLES, MAX_DATAGRAM, MAX_MSGLEN, MAX_EDICTS, entity_state_t } from './quakedef.js';
 import { sizebuf_t } from './common.js';
+import { MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP } from './protocol.js';
 
 //============================================================================
 // Server state enum
@@ -72,6 +73,27 @@ export class server_t {
 }
 
 //============================================================================
+// client_frame_t -- per-frame entity snapshot for delta compression
+// Ported from: QW/server/server.h
+//============================================================================
+
+export class client_frame_t {
+
+	constructor() {
+
+		this.senttime = 0;
+		this.entities = { num_entities: 0, entities: [] };
+		for ( let i = 0; i < MAX_PACKET_ENTITIES; i ++ ) {
+
+			this.entities.entities.push( new entity_state_t() );
+
+		}
+
+	}
+
+}
+
+//============================================================================
 // client_t -- per-client state on the server
 //============================================================================
 
@@ -109,6 +131,16 @@ export class client_t {
 
 		// client known data for deltas
 		this.old_frags = 0;
+
+		// QW-style delta compression
+		this.delta_sequence = - 1; // -1 = no compression
+		this.outgoing_sequence = 0; // incremented each frame we send to this client
+		this.frames = [];
+		for ( let i = 0; i < PE_UPDATE_BACKUP; i ++ ) {
+
+			this.frames.push( new client_frame_t() );
+
+		}
 
 	}
 

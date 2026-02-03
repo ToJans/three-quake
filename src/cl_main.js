@@ -34,6 +34,7 @@ import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
 import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
 	CL_GetPredictedPlayer, CL_SetUpPlayerPrediction,
+	CL_GetServerSequence, CL_GetValidSequence, CL_GetEntityFrame,
 	cl_simorg, cl_simvel, cl_simangles, cl_nopred } from './cl_pred.js';
 
 // Re-export prediction state for view.js to use
@@ -584,6 +585,218 @@ export function CL_LerpPoint() {
 
 /*
 ===============
+CL_LinkPacketEntities
+
+Links non-player entities from QW-style packet_entities into the
+visible entity list. Handles effects, dynamic lights, and particle trails.
+Ported from: QW/client/cl_ents.c
+===============
+*/
+
+// Cached vectors for CL_LinkPacketEntities (avoid per-frame allocations)
+const _peOldorg = new Float32Array( 3 );
+const _peFv = new Float32Array( 3 );
+const _peRv = new Float32Array( 3 );
+const _peUv = new Float32Array( 3 );
+
+function CL_LinkPacketEntities() {
+
+	const seq = CL_GetServerSequence();
+	if ( CL_GetValidSequence() === 0 )
+		return;
+
+	const eframe = CL_GetEntityFrame( seq );
+	if ( eframe.invalid )
+		return;
+
+	const pack = eframe.packet_entities;
+	const autorotate = anglemod( 100 * cl.time );
+
+	for ( let pnum = 0; pnum < pack.num_entities; pnum ++ ) {
+
+		const s1 = pack.entities[ pnum ];
+
+		// if set to invisible, skip
+		if ( s1.modelindex === 0 )
+			continue;
+
+		// spawn light flashes, even ones coming from invisible objects
+		if ( s1.effects & 0x0004 ) { // EF_BRIGHTLIGHT
+
+			const dl = CL_AllocDlight( s1.number );
+			dl.origin[ 0 ] = s1.origin[ 0 ];
+			dl.origin[ 1 ] = s1.origin[ 1 ];
+			dl.origin[ 2 ] = s1.origin[ 2 ] + 16;
+			dl.radius = 400 + ( Math.random() * 32 | 0 );
+			dl.die = cl.time + 0.001;
+
+		}
+
+		if ( s1.effects & 0x0008 ) { // EF_DIMLIGHT
+
+			const dl = CL_AllocDlight( s1.number );
+			dl.origin[ 0 ] = s1.origin[ 0 ];
+			dl.origin[ 1 ] = s1.origin[ 1 ];
+			dl.origin[ 2 ] = s1.origin[ 2 ];
+			dl.radius = 200 + ( Math.random() * 32 | 0 );
+			dl.die = cl.time + 0.001;
+
+		}
+
+		if ( s1.effects & 0x0002 ) { // EF_MUZZLEFLASH
+
+			const dl = CL_AllocDlight( s1.number );
+			dl.origin[ 0 ] = s1.origin[ 0 ];
+			dl.origin[ 1 ] = s1.origin[ 1 ];
+			dl.origin[ 2 ] = s1.origin[ 2 ] + 16;
+			AngleVectors( s1.angles, _peFv, _peRv, _peUv );
+			VectorMA( dl.origin, 18, _peFv, dl.origin );
+			dl.radius = 200 + ( Math.random() * 32 | 0 );
+			dl.minlight = 32;
+			dl.die = cl.time + 0.1;
+
+		}
+
+		// create a new entity
+		if ( cl_numvisedicts >= MAX_VISEDICTS )
+			break; // object list is full
+
+		// Use the cl_entities entry directly for rendering (it has the Three.js mesh cache)
+		const ent = cl_entities[ s1.number ];
+
+		// Update entity fields from packet entity state
+		const model = cl.model_precache[ s1.modelindex ];
+
+		if ( model !== ent.model ) {
+
+			ent.model = model;
+			if ( model != null ) {
+
+				if ( model.synctype === 1 ) // ST_RAND
+					ent.syncbase = ( Math.random() * 0x7fff | 0 ) / 0x7fff;
+				else
+					ent.syncbase = 0.0;
+
+			}
+
+		}
+
+		ent.frame = s1.frame;
+		ent.skinnum = s1.skin;
+		ent.effects = s1.effects;
+
+		// set colormap
+		if ( s1.colormap === 0 ) {
+
+			ent.colormap = null;
+
+		} else if ( s1.colormap > 0 && s1.colormap <= cl.maxclients && cl.scores != null ) {
+
+			ent.colormap = cl.scores[ s1.colormap - 1 ].translations;
+
+		}
+
+		// Save previous origin for trails
+		VectorCopy( ent.origin, _peOldorg );
+
+		// rotate binary objects locally
+		if ( model != null && ( model.flags & 0x0004 ) ) { // EF_ROTATE
+
+			ent.angles[ 0 ] = 0;
+			ent.angles[ 1 ] = autorotate;
+			ent.angles[ 2 ] = 0;
+
+		} else {
+
+			ent.angles[ 0 ] = s1.angles[ 0 ];
+			ent.angles[ 1 ] = s1.angles[ 1 ];
+			ent.angles[ 2 ] = s1.angles[ 2 ];
+
+		}
+
+		// Set origin directly from server (no interpolation yet, matching QW FIXME)
+		ent.origin[ 0 ] = s1.origin[ 0 ];
+		ent.origin[ 1 ] = s1.origin[ 1 ];
+		ent.origin[ 2 ] = s1.origin[ 2 ];
+
+		// Mark as updated this frame
+		ent.msgtime = cl.mtime[ 0 ];
+
+		// particle trails
+		if ( model != null && model.flags !== 0 ) {
+
+			// Check for large position delta (teleport)
+			let skipTrail = false;
+			for ( let i = 0; i < 3; i ++ ) {
+
+				if ( Math.abs( _peOldorg[ i ] - ent.origin[ i ] ) > 128 ) {
+
+					VectorCopy( ent.origin, _peOldorg );
+					skipTrail = true;
+					break;
+
+				}
+
+			}
+
+			if ( ! skipTrail ) {
+
+				if ( model.flags & 0x01 ) { // EF_ROCKET
+
+					R_RocketTrail( _peOldorg, ent.origin, 0 );
+					const dl = CL_AllocDlight( s1.number );
+					VectorCopy( ent.origin, dl.origin );
+					dl.radius = 200;
+					dl.die = cl.time + 0.01;
+
+				} else if ( model.flags & 0x02 ) { // EF_GRENADE
+
+					R_RocketTrail( _peOldorg, ent.origin, 1 );
+
+				} else if ( model.flags & 0x04 ) { // EF_GIB
+
+					R_RocketTrail( _peOldorg, ent.origin, 2 );
+
+				} else if ( model.flags & 0x10 ) { // EF_TRACER
+
+					R_RocketTrail( _peOldorg, ent.origin, 3 );
+
+				} else if ( model.flags & 0x20 ) { // EF_ZOMGIB
+
+					R_RocketTrail( _peOldorg, ent.origin, 4 );
+
+				} else if ( model.flags & 0x40 ) { // EF_TRACER2
+
+					R_RocketTrail( _peOldorg, ent.origin, 5 );
+
+				} else if ( model.flags & 0x80 ) { // EF_TRACER3
+
+					R_RocketTrail( _peOldorg, ent.origin, 6 );
+
+				}
+
+			}
+
+		}
+
+		ent.forcelink = false;
+
+		cl_visedicts[ cl_numvisedicts ] = ent;
+		set_cl_numvisedicts( cl_numvisedicts + 1 );
+
+	}
+
+}
+
+// Cached vectors for CL_RelinkEntities (avoid per-frame allocations)
+const _relinkOldorg = new Float32Array( 3 );
+const _relinkDelta = new Float32Array( 3 );
+const _relinkFv = new Float32Array( 3 );
+const _relinkRv = new Float32Array( 3 );
+const _relinkUv = new Float32Array( 3 );
+
+/*
+===============
 CL_RelinkEntities
 ===============
 */
@@ -636,11 +849,13 @@ export function CL_RelinkEntities() {
 		CL_SetUpPlayerPrediction( true );
 	}
 
-	// start on the entity after the world
-	for ( let i = 1; i < cl.num_entities; i ++ ) {
+	// Relink player entities (1..maxclients) using NQ-style updates
+	// (players are sent via svc_playerinfo which updates cl_entities directly)
+	const maxPlayerEntity = Math.min( cl.maxclients, cl.num_entities - 1 );
+	for ( let i = 1; i <= maxPlayerEntity; i ++ ) {
 
 		const ent = cl_entities[ i ];
-		if ( ! ent.model ) {
+		if ( ent.model == null ) {
 
 			// empty slot
 			if ( ent.forcelink ) {
@@ -661,8 +876,7 @@ export function CL_RelinkEntities() {
 
 		}
 
-		const oldorg = new Float32Array( 3 );
-		VectorCopy( ent.origin, oldorg );
+		VectorCopy( ent.origin, _relinkOldorg );
 
 		if ( ent.forcelink ) {
 
@@ -675,11 +889,10 @@ export function CL_RelinkEntities() {
 
 			// if the delta is large, assume a teleport and don't lerp
 			let f = frac;
-			const delta = new Float32Array( 3 );
 			for ( let j = 0; j < 3; j ++ ) {
 
-				delta[ j ] = ent.msg_origins[ 0 ][ j ] - ent.msg_origins[ 1 ][ j ];
-				if ( delta[ j ] > 100 || delta[ j ] < - 100 )
+				_relinkDelta[ j ] = ent.msg_origins[ 0 ][ j ] - ent.msg_origins[ 1 ][ j ];
+				if ( _relinkDelta[ j ] > 100 || _relinkDelta[ j ] < - 100 )
 					f = 1; // assume a teleportation, not a motion
 
 			}
@@ -687,7 +900,7 @@ export function CL_RelinkEntities() {
 			// interpolate the origin and angles
 			for ( let j = 0; j < 3; j ++ ) {
 
-				ent.origin[ j ] = ent.msg_origins[ 1 ][ j ] + f * delta[ j ];
+				ent.origin[ j ] = ent.msg_origins[ 1 ][ j ] + f * _relinkDelta[ j ];
 
 				let d = ent.msg_angles[ 0 ][ j ] - ent.msg_angles[ 1 ][ j ];
 				if ( d > 180 )
@@ -701,30 +914,29 @@ export function CL_RelinkEntities() {
 		}
 
 		// Use predicted position for other players (smoother multiplayer rendering)
-		// This overrides the server-interpolated position with our predicted position
-		if ( usePredictedPlayers && i <= cl.maxclients && i !== cl.viewentity ) {
+		if ( usePredictedPlayers && i !== cl.viewentity ) {
+
 			const pplayer = CL_GetPredictedPlayer( i );
 			if ( pplayer != null ) {
+
 				VectorCopy( pplayer.origin, ent.origin );
+
 			}
+
 		}
 
 		// rotate binary objects locally
-		if ( ent.model && ent.model.flags & 0x0004 ) // EF_ROTATE
+		if ( ent.model != null && ( ent.model.flags & 0x0004 ) ) // EF_ROTATE
 			ent.angles[ 1 ] = bobjrotate;
 
 		if ( ent.effects & 0x0002 ) { // EF_MUZZLEFLASH
 
-			const fv = new Float32Array( 3 );
-			const rv = new Float32Array( 3 );
-			const uv = new Float32Array( 3 );
-
 			const dl = CL_AllocDlight( i );
 			VectorCopy( ent.origin, dl.origin );
 			dl.origin[ 2 ] += 16;
-			AngleVectors( ent.angles, fv, rv, uv );
+			AngleVectors( ent.angles, _relinkFv, _relinkRv, _relinkUv );
 
-			VectorMA( dl.origin, 18, fv, dl.origin );
+			VectorMA( dl.origin, 18, _relinkFv, dl.origin );
 			dl.radius = 200 + ( Math.random() * 32 | 0 );
 			dl.minlight = 32;
 			dl.die = cl.time + 0.1;
@@ -750,33 +962,6 @@ export function CL_RelinkEntities() {
 
 		}
 
-		// particle trails
-		if ( ent.model && ent.model.flags ) {
-
-			if ( ent.model.flags & 0x04 ) // EF_GIB
-				R_RocketTrail( oldorg, ent.origin, 2 );
-			else if ( ent.model.flags & 0x20 ) // EF_ZOMGIB
-				R_RocketTrail( oldorg, ent.origin, 4 );
-			else if ( ent.model.flags & 0x10 ) // EF_TRACER
-				R_RocketTrail( oldorg, ent.origin, 3 );
-			else if ( ent.model.flags & 0x40 ) // EF_TRACER2
-				R_RocketTrail( oldorg, ent.origin, 5 );
-			else if ( ent.model.flags & 0x01 ) { // EF_ROCKET
-
-				R_RocketTrail( oldorg, ent.origin, 0 );
-				const dl = CL_AllocDlight( i );
-				VectorCopy( ent.origin, dl.origin );
-				dl.radius = 200;
-				dl.die = cl.time + 0.01;
-
-			}
-			else if ( ent.model.flags & 0x02 ) // EF_GRENADE
-				R_RocketTrail( oldorg, ent.origin, 1 );
-			else if ( ent.model.flags & 0x80 ) // EF_TRACER3
-				R_RocketTrail( oldorg, ent.origin, 6 );
-
-		}
-
 		ent.forcelink = false;
 
 		if ( i === cl.viewentity /* && ! chase_active.value */ )
@@ -790,6 +975,9 @@ export function CL_RelinkEntities() {
 		}
 
 	}
+
+	// Link non-player entities from QW-style packet_entities
+	CL_LinkPacketEntities();
 
 }
 

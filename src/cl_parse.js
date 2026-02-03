@@ -4,7 +4,7 @@ import { MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES,
 	MAX_CL_STATS, MAX_SCOREBOARD,
 	STAT_HEALTH, STAT_FRAGS, STAT_WEAPON, STAT_AMMO, STAT_ARMOR,
 	STAT_WEAPONFRAME, STAT_SHELLS, STAT_ACTIVEWEAPON, STAT_MONSTERS,
-	STAT_SECRETS } from './quakedef.js';
+	STAT_SECRETS, entity_state_t } from './quakedef.js';
 import { PITCH, YAW, ROLL } from './quakedef.js';
 import { Con_Printf, Con_DPrintf, SZ_Clear,
 	MSG_BeginReading, MSG_ReadByte, MSG_ReadChar, MSG_ReadShort, MSG_ReadLong,
@@ -42,18 +42,25 @@ import {
 	U_ANGLE1, U_ANGLE2, U_ANGLE3,
 	U_MODEL, U_FRAME, U_COLORMAP, U_SKIN, U_EFFECTS,
 	U_LONGENTITY, U_NOLERP,
-	DEFAULT_SOUND_PACKET_VOLUME, DEFAULT_SOUND_PACKET_ATTENUATION
+	DEFAULT_SOUND_PACKET_VOLUME, DEFAULT_SOUND_PACKET_ATTENUATION,
+	svc_packetentities, svc_deltapacketentities, svc_serversequence,
+	PE_ENT_BITS, PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
+	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
+	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
+	MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP, PE_UPDATE_MASK
 } from './protocol.js';
 import {
 	SIGNONS, MAX_STATIC_ENTITIES, MAX_DLIGHTS,
 	ca_connected,
 	cl, cls, cl_entities, cl_static_entities, cl_lightstyle,
-	entity_t, scoreboard_t, lightstyle_t } from './client.js';
+	entity_t, scoreboard_t, lightstyle_t, packet_entities_t } from './client.js';
 import { VectorCopy } from './mathlib.js';
 import { V_ParseDamage } from './view.js';
 import { Mod_ForName } from './gl_model.js';
 import { CL_SetServerState, CL_AcknowledgeCommand,
-	CL_FindAcknowledgedSequence, CL_SetValidSequence, CL_SetPlayerInfo } from './cl_pred.js';
+	CL_FindAcknowledgedSequence, CL_SetValidSequence, CL_SetPlayerInfo,
+	CL_GetServerSequence, CL_SetServerSequence, CL_GetFrame, CL_GetEntityFrame,
+	CL_GetValidSequence } from './cl_pred.js';
 import { R_TranslatePlayerSkin } from './gl_rmisc.js';
 import { R_NewMap } from './gl_rmisc.js';
 import { R_ParseParticleEffect, R_AddEfrags } from './render.js';
@@ -351,6 +358,295 @@ export function CL_ParseServerInfo() {
 	set_noclip_anglehack( false );
 
 }
+
+/*
+==================
+CL_ParseDelta
+
+Parse a QW-style delta-compressed entity state.
+Can delta from either a baseline or a previous packet_entity.
+Ported from: QW/client/cl_ents.c
+==================
+*/
+function CL_ParseDelta( from, to, bits ) {
+
+	// set everything to the state we are delta'ing from
+	to.copyFrom( from );
+
+	to.number = bits & PE_ENT_MASK;
+	bits &= ~PE_ENT_MASK;
+
+	if ( bits & PE_MOREBITS ) {
+
+		// read in the low order bits
+		const i = MSG_ReadByte();
+		bits |= i;
+
+	}
+
+	to.flags = bits;
+
+	if ( bits & PE_MODEL )
+		to.modelindex = MSG_ReadByte();
+
+	if ( bits & PE_FRAME )
+		to.frame = MSG_ReadByte();
+
+	if ( bits & PE_COLORMAP )
+		to.colormap = MSG_ReadByte();
+
+	if ( bits & PE_SKIN )
+		to.skin = MSG_ReadByte();
+
+	if ( bits & PE_EFFECTS )
+		to.effects = MSG_ReadByte();
+
+	if ( bits & PE_ORIGIN1 )
+		to.origin[ 0 ] = MSG_ReadCoord();
+
+	if ( bits & PE_ANGLE1 )
+		to.angles[ 0 ] = MSG_ReadAngle();
+
+	if ( bits & PE_ORIGIN2 )
+		to.origin[ 1 ] = MSG_ReadCoord();
+
+	if ( bits & PE_ANGLE2 )
+		to.angles[ 1 ] = MSG_ReadAngle();
+
+	if ( bits & PE_ORIGIN3 )
+		to.origin[ 2 ] = MSG_ReadCoord();
+
+	if ( bits & PE_ANGLE3 )
+		to.angles[ 2 ] = MSG_ReadAngle();
+
+}
+
+/*
+=================
+FlushEntityPacket
+
+Read and discard all entity data in the packet (on parse error).
+Ported from: QW/client/cl_ents.c
+=================
+*/
+const _flushOlde = new entity_state_t();
+const _flushNewe = new entity_state_t();
+
+function FlushEntityPacket() {
+
+	Con_DPrintf( 'FlushEntityPacket\n' );
+
+	CL_SetValidSequence( 0 ); // can't render a frame
+
+	const seq = CL_GetServerSequence();
+	CL_GetEntityFrame( seq ).invalid = true;
+
+	// read it all, but ignore it
+	while ( true ) {
+
+		const word = MSG_ReadShort() & 0xFFFF;
+		if ( msg_badread ) {
+
+			Host_EndGame( 'msg_badread in packetentities' );
+			return;
+
+		}
+
+		if ( word === 0 )
+			break; // done
+
+		CL_ParseDelta( _flushOlde, _flushNewe, word );
+
+	}
+
+}
+
+/*
+==================
+CL_ParsePacketEntities
+
+An svc_packetentities has just been parsed, deal with the
+rest of the data stream.
+Ported from: QW/client/cl_ents.c
+==================
+*/
+function CL_ParsePacketEntities( delta ) {
+
+	const seq = CL_GetServerSequence();
+	const eframe = CL_GetEntityFrame( seq );
+	const newp = eframe.packet_entities;
+	eframe.invalid = false;
+
+	let oldpacket;
+	if ( delta ) {
+
+		const from = MSG_ReadByte();
+		oldpacket = from;
+
+	} else {
+
+		oldpacket = - 1;
+
+	}
+
+	let full = false;
+	let oldp;
+	if ( oldpacket !== - 1 ) {
+
+		if ( seq - oldpacket >= PE_UPDATE_BACKUP - 1 ) {
+
+			// we can't use this, it is too old
+			FlushEntityPacket();
+			return;
+
+		}
+
+		CL_SetValidSequence( seq );
+		oldp = CL_GetEntityFrame( oldpacket ).packet_entities;
+
+	} else {
+
+		// this is a full update that we can start delta compressing from now
+		oldp = _emptyPacket;
+		CL_SetValidSequence( seq );
+		full = true;
+
+	}
+
+	let oldindex = 0;
+	let newindex = 0;
+	newp.num_entities = 0;
+
+	while ( true ) {
+
+		const word = MSG_ReadShort() & 0xFFFF;
+		if ( msg_badread ) {
+
+			Host_EndGame( 'msg_badread in packetentities' );
+			return;
+
+		}
+
+		if ( word === 0 ) {
+
+			// copy all the rest of the entities from the old packet
+			while ( oldindex < oldp.num_entities ) {
+
+				if ( newindex >= MAX_PACKET_ENTITIES ) {
+
+					Host_EndGame( 'CL_ParsePacketEntities: newindex == MAX_PACKET_ENTITIES' );
+					return;
+
+				}
+
+				newp.entities[ newindex ].copyFrom( oldp.entities[ oldindex ] );
+				newindex ++;
+				oldindex ++;
+
+			}
+
+			break;
+
+		}
+
+		const newnum = word & PE_ENT_MASK;
+		let oldnum = oldindex >= oldp.num_entities ? 9999 : oldp.entities[ oldindex ].number;
+
+		// copy unchanged old entities that sort before this new entry
+		while ( newnum > oldnum ) {
+
+			if ( full ) {
+
+				Con_Printf( 'WARNING: oldcopy on full update' );
+				FlushEntityPacket();
+				return;
+
+			}
+
+			// copy one of the old entities over to the new packet unchanged
+			if ( newindex >= MAX_PACKET_ENTITIES ) {
+
+				Host_EndGame( 'CL_ParsePacketEntities: newindex == MAX_PACKET_ENTITIES' );
+				return;
+
+			}
+
+			newp.entities[ newindex ].copyFrom( oldp.entities[ oldindex ] );
+			newindex ++;
+			oldindex ++;
+			oldnum = oldindex >= oldp.num_entities ? 9999 : oldp.entities[ oldindex ].number;
+
+		}
+
+		if ( newnum < oldnum ) {
+
+			// new from baseline
+			if ( word & PE_REMOVE ) {
+
+				if ( full ) {
+
+					CL_SetValidSequence( 0 );
+					Con_Printf( 'WARNING: U_REMOVE on full update\n' );
+					FlushEntityPacket();
+					return;
+
+				}
+
+				continue;
+
+			}
+
+			if ( newindex >= MAX_PACKET_ENTITIES ) {
+
+				Host_EndGame( 'CL_ParsePacketEntities: newindex == MAX_PACKET_ENTITIES' );
+				return;
+
+			}
+
+			CL_ParseDelta( cl_entities[ newnum ].baseline, newp.entities[ newindex ], word );
+			newindex ++;
+			continue;
+
+		}
+
+		if ( newnum === oldnum ) {
+
+			// delta from previous
+			if ( full ) {
+
+				CL_SetValidSequence( 0 );
+				Con_Printf( 'WARNING: delta on full update' );
+
+			}
+
+			if ( word & PE_REMOVE ) {
+
+				oldindex ++;
+				continue;
+
+			}
+
+			if ( newindex >= MAX_PACKET_ENTITIES ) {
+
+				Host_EndGame( 'CL_ParsePacketEntities: newindex == MAX_PACKET_ENTITIES' );
+				return;
+
+			}
+
+			CL_ParseDelta( oldp.entities[ oldindex ], newp.entities[ newindex ], word );
+			newindex ++;
+			oldindex ++;
+
+		}
+
+	}
+
+	newp.num_entities = newindex;
+
+}
+
+// Empty packet for full updates (no old data)
+const _emptyPacket = { num_entities: 0, entities: [] };
 
 /*
 ==================
@@ -1090,6 +1386,18 @@ export function CL_ParseServerMessage() {
 
 			case svc_playerinfo:
 				CL_ParsePlayerInfo();
+				break;
+
+			case svc_serversequence:
+				CL_SetServerSequence( MSG_ReadLong() );
+				break;
+
+			case svc_packetentities:
+				CL_ParsePacketEntities( false );
+				break;
+
+			case svc_deltapacketentities:
+				CL_ParsePacketEntities( true );
 				break;
 
 		}

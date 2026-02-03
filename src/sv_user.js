@@ -58,6 +58,7 @@ export const clc_nop = 1;
 export const clc_disconnect = 2;
 export const clc_move = 3;
 export const clc_stringcmd = 4;
+export const clc_delta = 5; // [byte] sequence number, requests delta compression
 
 export function SV_User_SetCallbacks( callbacks ) {
 
@@ -524,6 +525,9 @@ export function SV_ReadClientMessage() {
 
 		MSG_BeginReading();
 
+		// Reset delta_sequence — no delta unless client requests it
+		host_client.delta_sequence = - 1;
+
 		let continueOuter = false;
 		while ( true ) {
 
@@ -550,6 +554,10 @@ export function SV_ReadClientMessage() {
 					return false;
 
 				case clc_nop:
+					break;
+
+				case clc_delta:
+					host_client.delta_sequence = MSG_ReadByte();
 					break;
 
 				case clc_stringcmd: {
@@ -596,7 +604,7 @@ export function SV_ReadClientMessage() {
 
 				case clc_move:
 					// Ensure cmd object exists before reading into it
-					if ( ! host_client.cmd ) {
+					if ( host_client.cmd == null ) {
 						host_client.cmd = { forwardmove: 0, sidemove: 0, upmove: 0 };
 					}
 					SV_ReadClientMove( host_client.cmd );

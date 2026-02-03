@@ -4,6 +4,7 @@ import { Cmd_AddCommand } from './cmd.js';
 import { realtime } from './host.js';
 import { Con_Printf } from './console.js';
 import { Draw_GetUIScale } from './gl_draw.js';
+import { CL_GetLatency } from './cl_pred.js';
 import {
 	IT_SHOTGUN, IT_SUPER_SHOTGUN, IT_NAILGUN, IT_SUPER_NAILGUN,
 	IT_GRENADE_LAUNCHER, IT_ROCKET_LAUNCHER, IT_LIGHTNING, IT_SUPER_LIGHTNING,
@@ -795,6 +796,37 @@ export function Sbar_Draw() {
 		Sbar_DrawScoreboard();
 
 	}
+
+	// Draw ping in deathmatch
+	if ( _cl.gametype === GAME_DEATHMATCH ) {
+
+		Sbar_DrawPing();
+
+	}
+
+}
+
+/*
+==================
+Sbar_DrawPing
+
+Draw ping (latency) in the top-right corner during deathmatch
+==================
+*/
+function Sbar_DrawPing() {
+
+	if ( _Draw_Character == null ) return;
+
+	const latency = CL_GetLatency();
+	const pingMs = Math.round( latency * 1000 );
+	const str = pingMs + 'ms';
+
+	// Draw in top-right corner
+	const x = _vid.width - str.length * 8 - 8;
+	const y = 8;
+
+	for ( let i = 0; i < str.length; i ++ )
+		_Draw_Character( x + i * 8, y, str.charCodeAt( i ) );
 
 }
 

@@ -6,7 +6,7 @@ import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
 import { pmove, movevars, PlayerMove, PM_HullPointContents, PM_GetOnGround, Pmove_Init,
 	player_mins, player_maxs } from './pmove.js';
 import { CONTENTS_EMPTY } from './bspfile.js';
-import { cl, cls, ca_connected, cl_entities } from './client.js';
+import { cl, cls, ca_connected, cl_entities, packet_entities_t } from './client.js';
 import { STAT_HEALTH } from './quakedef.js';
 import { realtime, sv } from './host.js';
 
@@ -82,7 +82,7 @@ export class player_state_t {
 	}
 }
 
-// Frame structure - stores command and resulting state
+// Frame structure - stores command and resulting state for prediction
 export class frame_t {
 	constructor() {
 		this.cmd = {
@@ -98,16 +98,33 @@ export class frame_t {
 	}
 }
 
-// Frame buffer
+// Entity frame structure - stores packet entity snapshots from server
+// Separate from prediction frames because they use different sequence namespaces
+class entity_frame_t {
+	constructor() {
+		this.packet_entities = new packet_entities_t();
+		this.invalid = false; // set if parse error
+		this.server_sequence = 0; // server's outgoing sequence for this frame
+	}
+}
+
+// Prediction frame buffer (indexed by client outgoing_sequence)
 const frames = [];
 for ( let i = 0; i < UPDATE_BACKUP; i++ ) {
 	frames.push( new frame_t() );
+}
+
+// Entity frame buffer (indexed by server_sequence)
+const entity_frames = [];
+for ( let i = 0; i < UPDATE_BACKUP; i++ ) {
+	entity_frames.push( new entity_frame_t() );
 }
 
 // Sequence tracking
 let outgoing_sequence = 0; // Next command to send
 let incoming_sequence = 0; // Last acknowledged command from server
 let validsequence = 0; // Last valid server frame sequence (0 = no valid data yet)
+let server_sequence = 0; // Latest server frame sequence received (from svc_serversequence)
 
 // Predicted position (used for rendering)
 export const cl_simorg = new Float32Array( 3 ); // Simulated/predicted origin
@@ -131,6 +148,17 @@ export function CL_SetLatency( latency ) {
 
 /*
 =================
+CL_GetLatency
+
+Returns the current estimated latency in seconds
+=================
+*/
+export function CL_GetLatency() {
+	return cls_latency;
+}
+
+/*
+=================
 CL_GetOutgoingSequence / CL_GetIncomingSequence
 =================
 */
@@ -148,6 +176,44 @@ Set to 0 to invalidate (e.g., on error or disconnect).
 export function CL_SetValidSequence( seq ) {
 	validsequence = seq;
 }
+
+/*
+=================
+CL_GetValidSequence
+
+Returns the current validsequence value.
+=================
+*/
+export function CL_GetValidSequence() { return validsequence; }
+
+/*
+=================
+CL_GetFrame
+
+Access the prediction frame buffer (indexed by client outgoing_sequence).
+=================
+*/
+export function CL_GetFrame( seq ) { return frames[ seq & UPDATE_MASK ]; }
+
+/*
+=================
+CL_GetEntityFrame
+
+Access the entity frame buffer (indexed by server_sequence).
+Separate from prediction frames to avoid namespace conflicts.
+=================
+*/
+export function CL_GetEntityFrame( seq ) { return entity_frames[ seq & UPDATE_MASK ]; }
+
+/*
+=================
+CL_GetServerSequence / CL_SetServerSequence
+
+Server frame sequence tracking for delta compression.
+=================
+*/
+export function CL_GetServerSequence() { return server_sequence; }
+export function CL_SetServerSequence( seq ) { server_sequence = seq; }
 
 /*
 =================
@@ -717,6 +783,7 @@ export function CL_ResetPrediction() {
 	outgoing_sequence = 0;
 	incoming_sequence = 0;
 	validsequence = 0;
+	server_sequence = 0;
 	cls_latency = 0;
 
 	cl_simorg.fill( 0 );
@@ -728,5 +795,8 @@ export function CL_ResetPrediction() {
 		frames[ i ].senttime = 0;
 		frames[ i ].playerstate.origin.fill( 0 );
 		frames[ i ].playerstate.velocity.fill( 0 );
+		entity_frames[ i ].packet_entities.num_entities = 0;
+		entity_frames[ i ].invalid = false;
+		entity_frames[ i ].server_sequence = 0;
 	}
 }

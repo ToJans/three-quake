@@ -6,7 +6,7 @@ import { Con_Printf, Q_atoi, SZ_Clear,
 	net_message } from './common.js';
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
-import { clc_move } from './protocol.js';
+import { clc_move, clc_delta, PE_UPDATE_BACKUP } from './protocol.js';
 import { SIGNONS,
 	kbutton_t, usercmd_t,
 	cl, cls, cl_entities } from './client.js';
@@ -15,7 +15,7 @@ import { host_frametime, realtime } from './host.js';
 import { V_StartPitchDrift, V_StopPitchDrift } from './view.js';
 import { lookspring, CL_Disconnect } from './cl_main.js';
 import { NET_SendUnreliableMessage } from './net_main.js';
-import { CL_StoreCommand } from './cl_pred.js';
+import { CL_StoreCommand, CL_GetValidSequence, CL_GetServerSequence } from './cl_pred.js';
 
 /*
 ===============================================================================
@@ -392,6 +392,19 @@ export function CL_SendMove( cmd ) {
 	};
 	VectorCopy( cl.viewangles, predCmd.angles );
 	CL_StoreCommand( predCmd, realtime );
+
+	//
+	// Request delta compression of entities
+	// Ported from: QW/client/cl_input.c
+	//
+	const validseq = CL_GetValidSequence();
+	const serverseq = CL_GetServerSequence();
+	if ( validseq !== 0 && serverseq - validseq < PE_UPDATE_BACKUP - 1 ) {
+
+		MSG_WriteByte( buf, clc_delta );
+		MSG_WriteByte( buf, validseq & 255 );
+
+	}
 
 	//
 	// deliver the message

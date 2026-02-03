@@ -153,3 +153,46 @@ export const CM_UP = ( 1 << 4 );
 export const CM_BUTTONS = ( 1 << 5 );
 export const CM_IMPULSE = ( 1 << 6 );
 export const CM_ANGLE2 = ( 1 << 7 );
+
+//==============================================
+// QW-style delta compression for packet entities
+// Ported from: QW/client/protocol.h
+//
+// The first 16 bits of a packetentities update holds 10 bits
+// of entity number (max 1024, to support MAX_EDICTS=600) and
+// 6 bits of flags.
+//==============================================
+
+export const svc_packetentities = 47; // [...]
+export const svc_deltapacketentities = 48; // [...]
+export const svc_serversequence = 49; // [long] server frame sequence number
+
+export const clc_delta = 5; // [byte] sequence number, requests delta compression
+
+// Entity number mask: 10 bits for entity number (0-1023)
+export const PE_ENT_BITS = 10;
+export const PE_ENT_MASK = ( 1 << PE_ENT_BITS ) - 1; // 0x3FF
+
+// Packet entity U_* flags (upper 6 bits of the short, plus morebits byte)
+// Bits 10-15 of the first short:
+export const PE_ORIGIN1 = ( 1 << 10 );
+export const PE_ORIGIN2 = ( 1 << 11 );
+export const PE_ORIGIN3 = ( 1 << 12 );
+export const PE_ANGLE2 = ( 1 << 13 );
+export const PE_REMOVE = ( 1 << 14 ); // REMOVE this entity, don't add it
+export const PE_MOREBITS = ( 1 << 15 );
+
+// If PE_MOREBITS is set, these additional flags are read in the next byte:
+export const PE_FRAME = ( 1 << 0 );
+export const PE_ANGLE1 = ( 1 << 1 );
+export const PE_ANGLE3 = ( 1 << 2 );
+export const PE_MODEL = ( 1 << 3 );
+export const PE_COLORMAP = ( 1 << 4 );
+export const PE_SKIN = ( 1 << 5 );
+export const PE_EFFECTS = ( 1 << 6 );
+export const PE_SOLID = ( 1 << 7 ); // entity should be solid for prediction
+
+// Packet entities constants
+export const MAX_PACKET_ENTITIES = 64; // max entities in a single packet
+export const PE_UPDATE_BACKUP = 64; // must be power of 2
+export const PE_UPDATE_MASK = PE_UPDATE_BACKUP - 1;
