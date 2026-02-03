@@ -101,7 +101,7 @@ These indicate shader compilation failures.
 
 ## GTAO Debug Modes
 
-The GTAO composite shader has debug modes controlled by `compositeMaterial.uniforms.debugMode.value`:
+The GTAO composite shader has debug modes controlled by the `cg_hq_ao_debug` console variable:
 
 | Value | Mode | Description |
 |-------|------|-------------|
@@ -111,21 +111,19 @@ The GTAO composite shader has debug modes controlled by `compositeMaterial.unifo
 | 3 | Show Depth | Display depth buffer |
 | 4 | Show Normals | Display normal buffer |
 
-**To enable debug mode**, edit `gl_gtao.js` in `createMaterials()`:
-```javascript
-compositeMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-        // ...
-        debugMode: { value: 2.0 }  // Change this value
-    }
-});
+**To enable debug mode**, use the console:
+```
+cg_hq_ao_debug 3    # Show depth buffer
+cg_hq_ao_debug 4    # Show normals
+cg_hq_ao_debug 2    # Show raw AO
+cg_hq_ao_debug 0    # Normal rendering
 ```
 
 **Debug workflow:**
-1. Mode 3 (depth) - Verify depth buffer is captured correctly
-2. Mode 4 (normals) - Verify normals are captured correctly
-3. Mode 2 (AO) - See raw AO output
-4. Mode 0 (normal) - Final blended result
+1. `cg_hq_ao_debug 3` (depth) - Verify depth buffer is captured correctly
+2. `cg_hq_ao_debug 4` (normals) - Verify normals are captured correctly
+3. `cg_hq_ao_debug 2` (AO) - See raw AO output
+4. `cg_hq_ao_debug 0` (normal) - Final blended result
 
 ---
 

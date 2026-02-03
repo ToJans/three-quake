@@ -24,7 +24,7 @@ import {
 } from './r_part.js';
 import { Debug_UpdateOverlay, Debug_ClearLabels } from './debug_overlay.js';
 import {
-	GTAO_Init, GTAO_Apply, GTAO_SetEnabled, GTAO_SetRadius, GTAO_SetIntensity
+	GTAO_Init, GTAO_Apply, GTAO_SetEnabled, GTAO_SetRadius, GTAO_SetIntensity, GTAO_SetDebugMode
 } from './gl_gtao.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
@@ -204,6 +204,7 @@ export const cg_hq = new cvar_t( 'cg_hq', '0', true ); // archived
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true ); // Ambient Occlusion (GTAO)
 export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '2.0', true );
 export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.5', true );
+export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=white, 2=AO, 3=depth, 4=normals
 
 // Placeholder cvars for future features (documented in visual fidelity guide)
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // Screen Space Reflections
@@ -924,6 +925,7 @@ const HQ_TONEMAPPING = 64; // bit 6
 let _lastAOEnabled = false;
 let _lastAORadius = - 1;
 let _lastAOIntensity = - 1;
+let _lastAODebug = - 1;
 
 function isHQFeatureEnabled( bitmask, individualCvar ) {
 
@@ -960,6 +962,13 @@ function R_ApplyHQEffects() {
 
 			GTAO_SetIntensity( cg_hq_ao_intensity.value );
 			_lastAOIntensity = cg_hq_ao_intensity.value;
+
+		}
+
+		if ( cg_hq_ao_debug.value !== _lastAODebug ) {
+
+			GTAO_SetDebugMode( cg_hq_ao_debug.value );
+			_lastAODebug = cg_hq_ao_debug.value;
 
 		}
 

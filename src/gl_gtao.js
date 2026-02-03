@@ -529,6 +529,16 @@ export function GTAO_SetFalloff( value ) {
 
 }
 
+export function GTAO_SetDebugMode( value ) {
+
+	if ( compositeMaterial ) {
+
+		compositeMaterial.uniforms.debugMode.value = value;
+
+	}
+
+}
+
 //============================================================================
 // Main render function
 //============================================================================

@@ -14,7 +14,7 @@ import { d_lightstylevalue, r_viewleaf, r_norefresh, r_lightmap,
 	getTextureExtensionNumber, particletexture, playertextures,
 	envmap } from './glquake.js';
 import { r_worldentity, R_Init as R_Init_rmain, GL_BuildLightmaps as GL_BuildLightmaps_impl,
-	cg_hq, cg_hq_ao, cg_hq_ao_radius, cg_hq_ao_intensity,
+	cg_hq, cg_hq_ao, cg_hq_ao_radius, cg_hq_ao_intensity, cg_hq_ao_debug,
 	cg_hq_ssr, cg_hq_gi, cg_hq_bloom, cg_hq_shadows, cg_hq_volumetric, cg_hq_tonemapping
 } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
@@ -271,6 +271,7 @@ export function R_Init() {
 		_Cvar_RegisterVariable( cg_hq_ao );
 		_Cvar_RegisterVariable( cg_hq_ao_radius );
 		_Cvar_RegisterVariable( cg_hq_ao_intensity );
+		_Cvar_RegisterVariable( cg_hq_ao_debug );
 		_Cvar_RegisterVariable( cg_hq_ssr );
 		_Cvar_RegisterVariable( cg_hq_gi );
 		_Cvar_RegisterVariable( cg_hq_bloom );
