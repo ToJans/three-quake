@@ -25,8 +25,18 @@ import { scene, camera, cg_hq, cg_hq_ssr, cg_hq_ao, cg_hq_bloom, cg_hq_tonemappi
 import {
 	cg_hq_ao_radius, cg_hq_ao_intensity,
 	cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius,
-	cg_hq_ssr_maxdistance, cg_hq_ssr_thickness, cg_hq_ssr_intensity
+	cg_hq_ssr_maxdistance, cg_hq_ssr_thickness, cg_hq_ssr_intensity,
+	cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure
 } from './gl_rmain.js';
+
+// Tone mapping operators (matching cg_hq_tonemapping_operator values)
+const TONE_MAPPING_OPERATORS = [
+	THREE.ACESFilmicToneMapping,  // 0 = ACES (default)
+	THREE.ReinhardToneMapping,    // 1 = Reinhard
+	THREE.CineonToneMapping,      // 2 = Cineon/Uncharted2-like
+	THREE.AgXToneMapping,         // 3 = AgX
+	THREE.NeutralToneMapping      // 4 = Neutral
+];
 
 //============================================================================
 // State - Three.js mode
@@ -146,6 +156,27 @@ function updateThreeParams() {
 		threeBloomPass.threshold = parseFloat( cg_hq_bloom_threshold.value ) || 0.5;
 		threeBloomPass.intensity = parseFloat( cg_hq_bloom_intensity.value ) || 0.5;
 		threeBloomPass.radius = parseFloat( cg_hq_bloom_radius.value ) || 1.0;
+
+	}
+
+	// Tonemapping - applied via renderer settings (OutputPass reads from renderer)
+	const tonemappingEnabled = ( hqValue & 8 ) !== 0;
+	const tonemappingForce = cg_hq_tonemapping.value | 0;
+	const tonemappingOn = tonemappingForce === 1 || ( tonemappingForce === 0 && tonemappingEnabled );
+
+	if ( renderer ) {
+
+		if ( tonemappingOn ) {
+
+			const operatorIndex = ( cg_hq_tonemapping_operator.value | 0 );
+			renderer.toneMapping = TONE_MAPPING_OPERATORS[ operatorIndex ] || THREE.ACESFilmicToneMapping;
+			renderer.toneMappingExposure = parseFloat( cg_hq_tonemapping_exposure.value ) || 1.0;
+
+		} else {
+
+			renderer.toneMapping = THREE.NoToneMapping;
+
+		}
 
 	}
 
