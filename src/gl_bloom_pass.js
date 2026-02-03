@@ -154,7 +154,7 @@ const compositeShader = {
 
 class QuakeBloomPass extends Pass {
 
-	constructor( resolution, threshold = 0.5, intensity = 0.5, radius = 1.0 ) {
+	constructor( resolution, threshold = 0.15, intensity = 0.7, radius = 0.3 ) {
 
 		super();
 

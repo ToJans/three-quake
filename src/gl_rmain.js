@@ -223,9 +223,9 @@ export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '64', true )
 export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true );
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true );
 export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true );
-export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.99', true );
-export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '0.8', true );
-export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '1.0', true );
+export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.8', true );
+export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '1.0', true );
+export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '0.1', true );
 export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' );
 
 // AO (bit 1)
@@ -244,8 +244,8 @@ export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' );
 // Tonemapping (bit 3)
 export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true );
 export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true );
-export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '2.4', true );
-export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '2.8', true );
+export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '3', true );
+export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '3', true );
 export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' );
 
 //============================================================================

@@ -73,9 +73,9 @@ function initThreeJS() {
 	threeSsrPass.enabled = false;
 	threeComposer.addPass( threeSsrPass );
 
-	// Custom Quake bloom pass
+	// Custom Quake bloom pass (values will be overridden by cvars in updateThreeParams)
 	const resolution = new THREE.Vector2( width, height );
-	threeBloomPass = new QuakeBloomPass( resolution, 0.5, 0.5, 1.0 );
+	threeBloomPass = new QuakeBloomPass( resolution );
 	threeBloomPass.enabled = false;
 	threeComposer.addPass( threeBloomPass );
 
@@ -133,6 +133,10 @@ function updateThreeParams() {
 	if ( threeGtaoPass ) {
 
 		threeGtaoPass.enabled = aoForce === 1 || ( aoForce === 0 && aoEnabled );
+		threeGtaoPass.updateGtaoMaterial( {
+			radius: parseFloat( cg_hq_ao_radius.value ) || 6,
+			scale: parseFloat( cg_hq_ao_intensity.value ) || 0.3
+		} );
 
 	}
 
