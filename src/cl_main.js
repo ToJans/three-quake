@@ -849,10 +849,15 @@ export function CL_RelinkEntities() {
 		CL_SetUpPlayerPrediction( true );
 	}
 
-	// Relink player entities (1..maxclients) using NQ-style updates
-	// (players are sent via svc_playerinfo which updates cl_entities directly)
-	const maxPlayerEntity = Math.min( cl.maxclients, cl.num_entities - 1 );
-	for ( let i = 1; i <= maxPlayerEntity; i ++ ) {
+	// When using QW-style delta compression, only relink player entities here
+	// (non-players are handled by CL_LinkPacketEntities below).
+	// During demo playback or when no valid packet entity data exists,
+	// relink ALL entities using the NQ-style path.
+	const usePacketEntities = CL_GetValidSequence() !== 0 && cls.demoplayback === false;
+	const maxRelinkEntity = usePacketEntities
+		? Math.min( cl.maxclients, cl.num_entities - 1 )
+		: cl.num_entities - 1;
+	for ( let i = 1; i <= maxRelinkEntity; i ++ ) {
 
 		const ent = cl_entities[ i ];
 		if ( ent.model == null ) {
@@ -977,7 +982,11 @@ export function CL_RelinkEntities() {
 	}
 
 	// Link non-player entities from QW-style packet_entities
-	CL_LinkPacketEntities();
+	if ( usePacketEntities ) {
+
+		CL_LinkPacketEntities();
+
+	}
 
 }
 
