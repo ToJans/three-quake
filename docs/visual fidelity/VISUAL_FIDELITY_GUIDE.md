@@ -532,8 +532,8 @@ cg_hq_bloom_radius 0.3     # Blur spread
 **HDR Tonemapping:**
 ```
 cg_hq_tonemapping 1               # Enable tonemapping
-cg_hq_tonemapping_operator 0      # 0=ACES, 1=Reinhard, 2=Cineon, 3=AgX, 4=Neutral
-cg_hq_tonemapping_exposure 3.0    # Scene exposure
+cg_hq_tonemapping_operator 3      # 0=ACES, 1=Reinhard, 2=Cineon, 3=AgX (default), 4=Neutral
+cg_hq_tonemapping_exposure 3      # Scene exposure (default)
 ```
 
 **Master Bitmask:**
