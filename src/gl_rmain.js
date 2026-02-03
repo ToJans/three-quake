@@ -28,8 +28,13 @@ import {
 } from './gl_gtao.js';
 import {
 	Bloom_Init, Bloom_Apply, Bloom_SetEnabled, Bloom_SetThreshold, Bloom_SetIntensity,
-	Bloom_SetRadius, Bloom_SetDebugMode
+	Bloom_SetRadius, Bloom_SetDebugMode, Bloom_ApplyToTarget, Bloom_GetSceneTarget
 } from './gl_bloom.js';
+import {
+	Tonemapping_Init, Tonemapping_Apply, Tonemapping_SetEnabled, Tonemapping_SetOperator,
+	Tonemapping_SetExposure, Tonemapping_SetGamma, Tonemapping_SetDebugMode,
+	Tonemapping_ApplyToTexture
+} from './gl_tonemapping.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_lightstyle
@@ -212,17 +217,23 @@ export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=w
 
 // Bloom cvars
 export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom
-export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.8', true );
-export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '0.5', true );
-export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '1.0', true );
-export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' ); // 0=off, 1=bloom only
+export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.0', true ); // No threshold - bloom based on brightness
+export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '6.0', true );
+export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '2.0', true ); // Blur spread multiplier
+export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' ); // 0=off, 1=bloom, 2=bright pass, 3=scene
+
+// Tonemapping cvars
+export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true ); // HDR Tonemapping
+export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true ); // 0=ACES, 1=Reinhard, 2=Uncharted2
+export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '1.0', true );
+export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '2.2', true );
+export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' ); // 0=off, 1=no tonemap, 2=luminance, 3=raw HDR
 
 // Placeholder cvars for future features (documented in visual fidelity guide)
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // Screen Space Reflections
 export const cg_hq_gi = new cvar_t( 'cg_hq_gi', '0', true ); // Global Illumination
 export const cg_hq_shadows = new cvar_t( 'cg_hq_shadows', '0', true ); // Soft Shadows (PCSS)
 export const cg_hq_volumetric = new cvar_t( 'cg_hq_volumetric', '0', true ); // Volumetric Lighting
-export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true ); // HDR Tonemapping
 
 //============================================================================
 // v_blend -- screen blend color for damage/powerups
@@ -943,12 +954,21 @@ let _lastBloomIntensity = - 1;
 let _lastBloomRadius = - 1;
 let _lastBloomDebug = - 1;
 
+let _lastTonemappingEnabled = false;
+let _lastTonemappingOperator = - 1;
+let _lastTonemappingExposure = - 1;
+let _lastTonemappingGamma = - 1;
+let _lastTonemappingDebug = - 1;
+
 function isHQFeatureEnabled( bitmask, individualCvar ) {
 
-	// Individual cvar takes precedence if explicitly set to non-zero
-	if ( individualCvar.value !== 0 ) return true;
+	// Individual cvar > 0 forces the feature ON
+	if ( individualCvar.value > 0 ) return true;
 
-	// Otherwise check the master bitmask
+	// Individual cvar < 0 forces the feature OFF (overrides master bitmask)
+	if ( individualCvar.value < 0 ) return false;
+
+	// Individual cvar == 0: use master bitmask
 	return ( cg_hq.value & bitmask ) !== 0;
 
 }
@@ -1033,10 +1053,89 @@ function R_ApplyHQEffects() {
 
 		}
 
-		// Apply Bloom
-		Bloom_Apply();
+	}
+
+	// Update Tonemapping settings if changed
+	const tonemappingEnabled = isHQFeatureEnabled( HQ_TONEMAPPING, cg_hq_tonemapping );
+
+	if ( tonemappingEnabled !== _lastTonemappingEnabled ) {
+
+		Tonemapping_SetEnabled( tonemappingEnabled );
+		_lastTonemappingEnabled = tonemappingEnabled;
 
 	}
+
+	if ( tonemappingEnabled ) {
+
+		if ( cg_hq_tonemapping_operator.value !== _lastTonemappingOperator ) {
+
+			Tonemapping_SetOperator( cg_hq_tonemapping_operator.value );
+			_lastTonemappingOperator = cg_hq_tonemapping_operator.value;
+
+		}
+
+		if ( cg_hq_tonemapping_exposure.value !== _lastTonemappingExposure ) {
+
+			Tonemapping_SetExposure( cg_hq_tonemapping_exposure.value );
+			_lastTonemappingExposure = cg_hq_tonemapping_exposure.value;
+
+		}
+
+		if ( cg_hq_tonemapping_gamma.value !== _lastTonemappingGamma ) {
+
+			Tonemapping_SetGamma( cg_hq_tonemapping_gamma.value );
+			_lastTonemappingGamma = cg_hq_tonemapping_gamma.value;
+
+		}
+
+		if ( cg_hq_tonemapping_debug.value !== _lastTonemappingDebug ) {
+
+			Tonemapping_SetDebugMode( cg_hq_tonemapping_debug.value );
+			_lastTonemappingDebug = cg_hq_tonemapping_debug.value;
+
+		}
+
+	}
+
+	// Apply post-processing effects in correct order
+	// Order matters: AO (multiply) -> Bloom (additive) -> Tonemapping (HDR->LDR)
+	//
+	// When both bloom and tonemapping are enabled, we use an HDR pipeline:
+	// 1. Bloom renders scene to HDR buffer and outputs scene+bloom to HDR target
+	// 2. Tonemapping reads the HDR target and outputs to screen
+	//
+	// When only bloom is enabled, it additively blends onto the screen as before.
+	// When only tonemapping is enabled, it captures the scene and tonemaps to screen.
+
+	if ( bloomEnabled && tonemappingEnabled ) {
+
+		// Combined HDR pipeline: bloom outputs to HDR target, tonemapping reads it
+		const hdrTarget = Bloom_ApplyToTarget();
+		if ( hdrTarget ) {
+
+			Tonemapping_ApplyToTexture( hdrTarget.texture );
+
+		} else {
+
+			// Fallback: if bloom failed to produce target, just apply tonemapping
+			Tonemapping_Apply();
+
+		}
+
+	} else if ( bloomEnabled ) {
+
+		// Bloom only: additive blend to screen
+		Bloom_Apply();
+
+	} else if ( tonemappingEnabled ) {
+
+		// Tonemapping only: capture scene and tonemap
+		Tonemapping_Apply();
+
+	}
+
+	// Note: When all effects are disabled, the main scene render from
+	// renderer.render(scene, camera) above is already on screen
 
 	// Future: add other HQ effects here
 	// if (isHQFeatureEnabled(HQ_SSR, cg_hq_ssr)) { SSR_Apply(); }

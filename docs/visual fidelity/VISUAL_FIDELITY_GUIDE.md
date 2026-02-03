@@ -321,21 +321,20 @@ Percentage-Closer Soft Shadows provide **contact-hardening**—shadows are sharp
 
 ---
 
-### 7. HDR Tonemapping
+### 7. HDR Tonemapping ✅
 
 **What it does:** Maps high dynamic range colors to displayable range while preserving detail in highlights and shadows.
 
 **Visual impact:** ★★★☆☆ (Medium)
 **Performance cost:** ★☆☆☆☆ (Minimal)
 
-#### Recommended Tonemappers
+#### Implemented Tonemappers
 
-| Operator | Style | Best For |
-|----------|-------|----------|
-| ACES Filmic | Cinematic, contrasty | General use |
-| Reinhard | Soft, preserves color | Bright scenes |
-| Uncharted 2 | Filmic, balanced | Games |
-| AgX | Modern, accurate | Wide gamut |
+| Operator | Value | Style | Best For |
+|----------|-------|-------|----------|
+| ACES Filmic | 0 | Cinematic, contrasty | General use (default) |
+| Reinhard | 1 | Soft, preserves color | Bright scenes |
+| Uncharted 2 | 2 | Filmic, balanced | Games |
 
 #### ACES Filmic Implementation
 
@@ -356,7 +355,6 @@ vec3 ACESFilm(vec3 x) {
 |-----------|-------------|-------------|
 | `exposure` | `1.0-2.0` | Scene brightness |
 | `gamma` | `2.2` | Display gamma |
-| `whitePoint` | `4.0-8.0` | Highlight compression |
 
 **Reference:** [Filmic Tonemapping (Matt DesLauriers)](https://medium.com/@mattdesl/filmic-effects-for-webgl-9dab4bc899dc)
 
@@ -439,7 +437,7 @@ For best visual improvement with minimal performance cost:
 
 1. ✅ **GTAO** - Huge visual improvement, low cost - `cg_hq_ao 1`
 2. ✅ **Bloom** - Makes lights pop, very cheap - `cg_hq_bloom 1`
-3. **Tonemapping** - Better colors, almost free
+3. ✅ **Tonemapping** - Better colors, almost free - `cg_hq_tonemapping 1`
 4. **Soft Shadows** - Noticeable quality boost
 5. **SSR** - Impressive on floors/water
 6. **Volumetric** - Atmospheric but expensive
@@ -534,11 +532,25 @@ cg_hq_ao_debug 0       # Debug off (normal rendering)
 **HDR Bloom:**
 ```
 cg_hq_bloom 1              # Enable bloom
-cg_hq_bloom_threshold 0.8  # Brightness cutoff (lower = more glow)
-cg_hq_bloom_intensity 0.5  # Bloom strength
-cg_hq_bloom_radius 1.0     # Blur spread multiplier
+cg_hq_bloom_threshold 0.0  # Brightness cutoff (0 = no threshold)
+cg_hq_bloom_intensity 6.0  # Bloom strength
+cg_hq_bloom_radius 2.0     # Blur spread multiplier (default)
+cg_hq_bloom_debug 3        # Debug: show captured scene
+cg_hq_bloom_debug 2        # Debug: show bright pass extraction
 cg_hq_bloom_debug 1        # Debug: show bloom only
 cg_hq_bloom_debug 0        # Debug off (normal rendering)
+```
+
+**HDR Tonemapping:**
+```
+cg_hq_tonemapping 1               # Enable tonemapping
+cg_hq_tonemapping_operator 0      # 0=ACES (default), 1=Reinhard, 2=Uncharted2
+cg_hq_tonemapping_exposure 1.0    # Scene exposure (1.0 = neutral)
+cg_hq_tonemapping_gamma 2.2       # Display gamma correction
+cg_hq_tonemapping_debug 3         # Debug: show raw HDR values
+cg_hq_tonemapping_debug 2         # Debug: show luminance
+cg_hq_tonemapping_debug 1         # Debug: exposure only, no tonemapping
+cg_hq_tonemapping_debug 0         # Debug off (normal rendering)
 ```
 
 **Master Bitmask:**

@@ -53,6 +53,7 @@ R_PolyBlend();                   // Screen overlays (must be last)
 | `src/gl_rmisc.js` | R_Init, cvar registration |
 | `src/gl_gtao.js` | GTAO ambient occlusion post-process |
 | `src/gl_bloom.js` | HDR Bloom post-process |
+| `src/gl_tonemapping.js` | HDR Tonemapping post-process |
 | `src/vid.js` | WebGLRenderer setup, resize handling |
 | `src/cvar.js` | Console variable system |
 
@@ -136,19 +137,52 @@ The Bloom composite shader has debug modes controlled by the `cg_hq_bloom_debug`
 |-------|------|-------------|
 | 0 | Normal | Apply bloom with additive blending |
 | 1 | Show Bloom | Display bloom contribution only |
+| 2 | Show Bright Pass | Display pixels above threshold |
+| 3 | Show Scene | Display captured scene texture |
 
-**To enable debug mode**, use the console:
+**To debug bloom**, use the console:
 ```
-cg_hq_bloom_debug 1    # Show bloom only
+cg_hq_bloom_debug 3    # Show captured scene (verify capture works)
+cg_hq_bloom_debug 2    # Show bright pass (what's being extracted)
+cg_hq_bloom_debug 1    # Show bloom only (blurred result)
 cg_hq_bloom_debug 0    # Normal rendering
 ```
 
 **Bloom parameters:**
 ```
 cg_hq_bloom 1                # Enable bloom
-cg_hq_bloom_threshold 0.8    # Brightness cutoff (0.0-1.0)
-cg_hq_bloom_intensity 0.5    # Bloom strength
-cg_hq_bloom_radius 1.0       # Blur spread multiplier
+cg_hq_bloom_threshold 0.0    # Brightness cutoff (0 = no threshold)
+cg_hq_bloom_intensity 6.0    # Bloom strength
+cg_hq_bloom_radius 2.0       # Blur spread multiplier
+```
+
+---
+
+## Tonemapping Debug Modes
+
+The Tonemapping shader has debug modes controlled by the `cg_hq_tonemapping_debug` console variable:
+
+| Value | Mode | Description |
+|-------|------|-------------|
+| 0 | Normal | Apply tonemapping and gamma correction |
+| 1 | No Tonemap | Show exposure-adjusted colors without tonemapping |
+| 2 | Luminance | Display luminance values |
+| 3 | Raw HDR | Display raw HDR values (clamped to 0-1) |
+
+**To debug tonemapping**, use the console:
+```
+cg_hq_tonemapping_debug 3    # Show raw HDR values
+cg_hq_tonemapping_debug 2    # Show luminance
+cg_hq_tonemapping_debug 1    # Exposure only, no tonemapping
+cg_hq_tonemapping_debug 0    # Normal rendering
+```
+
+**Tonemapping parameters:**
+```
+cg_hq_tonemapping 1                # Enable tonemapping
+cg_hq_tonemapping_operator 0       # 0=ACES, 1=Reinhard, 2=Uncharted2
+cg_hq_tonemapping_exposure 1.0     # Scene exposure
+cg_hq_tonemapping_gamma 2.2        # Display gamma
 ```
 
 ---
