@@ -454,7 +454,9 @@ export function SV_FindTouchedLeafs( ent, node ) {
 			return;
 
 		// leaf = (mleaf_t *)node
-		const leafnum = node._leafIndex !== undefined ? node._leafIndex : 0;
+		// C: leafnum = leaf - sv.worldmodel->leafs - 1
+		// The -1 is because leafs[0] is the solid leaf and PVS bit 0 = leafs[1]
+		const leafnum = ( node._leafIndex !== undefined ? node._leafIndex : 0 ) - 1;
 
 		ent.leafnums[ ent.num_leafs ] = leafnum;
 		ent.num_leafs ++;
