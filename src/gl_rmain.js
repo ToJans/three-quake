@@ -1008,9 +1008,6 @@ function R_ApplyHQEffects() {
 
 		}
 
-		// Apply GTAO
-		GTAO_Apply();
-
 	}
 
 	// Update Bloom settings if changed
@@ -1168,12 +1165,13 @@ function R_ApplyHQEffects() {
 	}
 
 	// Apply post-processing effects in correct order
-	// Order: AO (multiply) -> SSR (reflections) -> Bloom (additive) -> Tonemapping (HDR->LDR)
+	// Order: SSR (reflections) -> Bloom (additive) -> Tonemapping (HDR->LDR) -> AO (multiply)
 	//
 	// Pipeline integration:
 	// - SSR outputs scene+reflections to HDR target
 	// - Bloom uses SSR output (or renders scene if no SSR) and adds bloom
 	// - Tonemapping converts final HDR result to screen
+	// - AO is applied last as multiply blend (must be after effects that re-render scene)
 
 	// Determine what input to pass through the pipeline
 	let pipelineInput = null; // null means effects should render scene themselves
@@ -1242,6 +1240,14 @@ function R_ApplyHQEffects() {
 
 	// Note: When all effects are disabled, the main scene render from
 	// renderer.render(scene, camera) above is already on screen
+
+	// Apply AO last - it's a multiply blend on top of the final image
+	// Must be after SSR/bloom/tonemapping since those re-render the scene
+	if ( aoEnabled ) {
+
+		GTAO_Apply();
+
+	}
 
 }
 

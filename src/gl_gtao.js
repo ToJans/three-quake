@@ -620,12 +620,13 @@ export function GTAO_Apply() {
 	compositeMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
 	compositeMaterial.uniforms.tNormal.value = normalRenderTarget.texture;
 
-	// In debug mode >= 2, use normal blending to show buffers directly
+	// In any debug mode, use normal blending to show buffers directly
 	const debugMode = compositeMaterial.uniforms.debugMode.value;
-	if ( debugMode > 1.5 ) {
+	if ( debugMode > 0.5 ) {
 
 		compositeMaterial.blending = THREE.NormalBlending;
-		renderer.autoClear = true; // Clear to show AO buffer directly
+		renderer.autoClear = true;
+		renderer.autoClearColor = true;
 
 	} else {
 
