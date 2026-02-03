@@ -29,9 +29,9 @@ let screenScene = null;
 let screenCamera = null;
 
 // Parameters (controlled by cvars)
-let bloomThreshold = 0.0;  // No threshold - bloom everything based on brightness
-let bloomIntensity = 6.0;  // Strong glow
-let bloomRadius = 2.0;     // Blur spread (wider for softer glow)
+let bloomThreshold = 0.5;  // Brightness cutoff for bloom extraction
+let bloomIntensity = 0.5;  // Subtle glow
+let bloomRadius = 0.1;     // Blur spread
 
 //============================================================================
 // Bloom Shaders
@@ -67,14 +67,27 @@ void main() {
 	float warmth = max(0.0, color.r - max(color.g, color.b) * 0.5);
 	luminance += warmth * 0.5;
 
+	// Boost saturated colors (stained glass, colored lights)
+	// Saturation = difference between brightest and darkest channel
+	float maxC = max(color.r, max(color.g, color.b));
+	float minC = min(color.r, min(color.g, color.b));
+	float saturation = maxC - minC;
+	// Saturated bright colors should bloom more
+	luminance += saturation * maxC * 0.5;
+
 	// Debug mode 4: show raw luminance values
 	if (debugMode > 3.5) {
 		gl_FragColor = vec4(luminance, luminance, luminance, 1.0);
 		return;
 	}
 
-	// Output color scaled by luminance - no threshold filtering
-	gl_FragColor = vec4(color.rgb * luminance * 3.0, 1.0);
+	// Apply threshold with smooth falloff
+	// smoothstep creates a gradual transition around the threshold
+	float brightness = smoothstep(threshold, threshold + smoothWidth, luminance);
+
+	// Output color multiplied by brightness factor
+	// This filters out pixels below threshold and scales bright pixels
+	gl_FragColor = vec4(color.rgb * brightness, 1.0);
 }
 `;
 

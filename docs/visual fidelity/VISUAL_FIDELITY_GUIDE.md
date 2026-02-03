@@ -533,8 +533,8 @@ cg_hq_ao_debug 0       # Debug off (normal rendering)
 ```
 cg_hq_bloom 1              # Enable bloom
 cg_hq_bloom_threshold 0.0  # Brightness cutoff (0 = no threshold)
-cg_hq_bloom_intensity 6.0  # Bloom strength
-cg_hq_bloom_radius 2.0     # Blur spread multiplier (default)
+cg_hq_bloom_intensity 1.5  # Bloom strength (subtle)
+cg_hq_bloom_radius 2.0     # Blur spread multiplier
 cg_hq_bloom_debug 3        # Debug: show captured scene
 cg_hq_bloom_debug 2        # Debug: show bright pass extraction
 cg_hq_bloom_debug 1        # Debug: show bloom only

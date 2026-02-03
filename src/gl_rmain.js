@@ -217,9 +217,9 @@ export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=w
 
 // Bloom cvars
 export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom
-export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.0', true ); // No threshold - bloom based on brightness
-export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '6.0', true );
-export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '2.0', true ); // Blur spread multiplier
+export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.05', true );
+export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '0.5', true );
+export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.1', true ); // Blur spread multiplier
 export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' ); // 0=off, 1=bloom, 2=bright pass, 3=scene
 
 // Tonemapping cvars

@@ -152,7 +152,7 @@ cg_hq_bloom_debug 0    # Normal rendering
 ```
 cg_hq_bloom 1                # Enable bloom
 cg_hq_bloom_threshold 0.0    # Brightness cutoff (0 = no threshold)
-cg_hq_bloom_intensity 6.0    # Bloom strength
+cg_hq_bloom_intensity 1.5    # Bloom strength (default, subtle)
 cg_hq_bloom_radius 2.0       # Blur spread multiplier
 ```
 
