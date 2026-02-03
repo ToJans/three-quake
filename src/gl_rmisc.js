@@ -18,7 +18,9 @@ import { r_worldentity, R_Init as R_Init_rmain, GL_BuildLightmaps as GL_BuildLig
 	cg_hq_bloom, cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius, cg_hq_bloom_debug,
 	cg_hq_tonemapping, cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure,
 	cg_hq_tonemapping_gamma, cg_hq_tonemapping_debug,
-	cg_hq_ssr, cg_hq_gi, cg_hq_shadows, cg_hq_volumetric
+	cg_hq_ssr, cg_hq_ssr_maxsteps, cg_hq_ssr_maxdistance, cg_hq_ssr_thickness,
+	cg_hq_ssr_intensity, cg_hq_ssr_debug,
+	cg_hq_gi, cg_hq_volumetric
 } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
@@ -286,8 +288,12 @@ export function R_Init() {
 		_Cvar_RegisterVariable( cg_hq_tonemapping_gamma );
 		_Cvar_RegisterVariable( cg_hq_tonemapping_debug );
 		_Cvar_RegisterVariable( cg_hq_ssr );
+		_Cvar_RegisterVariable( cg_hq_ssr_maxsteps );
+		_Cvar_RegisterVariable( cg_hq_ssr_maxdistance );
+		_Cvar_RegisterVariable( cg_hq_ssr_thickness );
+		_Cvar_RegisterVariable( cg_hq_ssr_intensity );
+		_Cvar_RegisterVariable( cg_hq_ssr_debug );
 		_Cvar_RegisterVariable( cg_hq_gi );
-		_Cvar_RegisterVariable( cg_hq_shadows );
 		_Cvar_RegisterVariable( cg_hq_volumetric );
 
 	}

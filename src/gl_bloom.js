@@ -674,7 +674,9 @@ function ensureBloomCompositeTarget() {
 
 }
 
-export function Bloom_ApplyToTarget() {
+// Apply bloom and output to HDR target
+// inputTexture: optional - if provided, use this instead of re-rendering scene (for SSR integration)
+export function Bloom_ApplyToTarget( inputTexture = null ) {
 
 	if ( ! bloomEnabled || ! bloomInitialized ) return null;
 	if ( ! renderer || ! scene || ! camera ) return null;
@@ -683,13 +685,25 @@ export function Bloom_ApplyToTarget() {
 	const compositeTarget = ensureBloomCompositeTarget();
 	const hdrMaterial = ensureHDRPipelineMaterials();
 
-	// 1. Capture the scene to HDR buffer
-	const sceneTarget = ensureSceneRenderTarget();
-	renderer.setRenderTarget( sceneTarget );
-	renderer.render( scene, camera );
+	// 1. Get scene input - either from provided texture or by rendering
+	let sceneTexture;
+	if ( inputTexture ) {
+
+		// Use provided input (e.g., from SSR)
+		sceneTexture = inputTexture;
+
+	} else {
+
+		// Capture the scene to HDR buffer
+		const sceneTarget = ensureSceneRenderTarget();
+		renderer.setRenderTarget( sceneTarget );
+		renderer.render( scene, camera );
+		sceneTexture = sceneTarget.texture;
+
+	}
 
 	// 2. Bright pass - extract bright pixels
-	brightPassMaterial.uniforms.tDiffuse.value = sceneTarget.texture;
+	brightPassMaterial.uniforms.tDiffuse.value = sceneTexture;
 	brightPassMaterial.uniforms.threshold.value = bloomThreshold;
 
 	screenQuad.material = brightPassMaterial;
@@ -697,7 +711,7 @@ export function Bloom_ApplyToTarget() {
 	renderer.render( screenScene, screenCamera );
 
 	// 3. Progressive blur through mip chain
-	let inputTexture = brightPassTarget.texture;
+	let blurInput = brightPassTarget.texture;
 
 	for ( let i = 0; i < MIP_LEVELS; i ++ ) {
 
@@ -705,7 +719,7 @@ export function Bloom_ApplyToTarget() {
 		const mipHeight = blurTargetsH[ i ].height;
 
 		// Horizontal blur
-		blurMaterial.uniforms.tDiffuse.value = inputTexture;
+		blurMaterial.uniforms.tDiffuse.value = blurInput;
 		blurMaterial.uniforms.direction.value.set( 1, 0 );
 		blurMaterial.uniforms.resolution.value.set( mipWidth, mipHeight );
 
@@ -720,7 +734,7 @@ export function Bloom_ApplyToTarget() {
 		renderer.setRenderTarget( blurTargetsV[ i ] );
 		renderer.render( screenScene, screenCamera );
 
-		inputTexture = blurTargetsV[ i ].texture;
+		blurInput = blurTargetsV[ i ].texture;
 
 	}
 
@@ -730,7 +744,7 @@ export function Bloom_ApplyToTarget() {
 	hdrMaterial.uniforms.tBlur2.value = blurTargetsV[ 2 ].texture;
 	hdrMaterial.uniforms.tBlur3.value = blurTargetsV[ 3 ].texture;
 	hdrMaterial.uniforms.tBlur4.value = blurTargetsV[ 4 ].texture;
-	hdrMaterial.uniforms.tScene.value = sceneTarget.texture;
+	hdrMaterial.uniforms.tScene.value = sceneTexture;
 	hdrMaterial.uniforms.tBrightPass.value = brightPassTarget.texture;
 	hdrMaterial.uniforms.intensity.value = bloomIntensity;
 	hdrMaterial.uniforms.debugMode.value = compositeMaterial.uniforms.debugMode.value;

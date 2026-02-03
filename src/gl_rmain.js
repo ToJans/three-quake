@@ -36,6 +36,10 @@ import {
 	Tonemapping_ApplyToTexture
 } from './gl_tonemapping.js';
 import {
+	SSR_Init, SSR_Apply, SSR_ApplyToTarget, SSR_SetEnabled, SSR_SetMaxSteps,
+	SSR_SetMaxDistance, SSR_SetThickness, SSR_SetIntensity, SSR_SetDebugMode
+} from './gl_ssr.js';
+import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_lightstyle
 } from './client.js';
@@ -229,10 +233,16 @@ export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposur
 export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '2.2', true );
 export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' ); // 0=off, 1=no tonemap, 2=luminance, 3=raw HDR
 
-// Placeholder cvars for future features (documented in visual fidelity guide)
+// SSR cvars
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // Screen Space Reflections
+export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '32', true ); // Ray march steps
+export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '100', true ); // Max reflection distance
+export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '0.5', true ); // Depth tolerance
+export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '0.5', true ); // Reflection strength
+export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' ); // 0=off, 1=SSR only, 2=mask, 3=depth
+
+// Placeholder cvars for future features (documented in visual fidelity guide)
 export const cg_hq_gi = new cvar_t( 'cg_hq_gi', '0', true ); // Global Illumination
-export const cg_hq_shadows = new cvar_t( 'cg_hq_shadows', '0', true ); // Soft Shadows (PCSS)
 export const cg_hq_volumetric = new cvar_t( 'cg_hq_volumetric', '0', true ); // Volumetric Lighting
 
 //============================================================================
@@ -936,6 +946,13 @@ let _lastTonemappingExposure = - 1;
 let _lastTonemappingGamma = - 1;
 let _lastTonemappingDebug = - 1;
 
+let _lastSSREnabled = false;
+let _lastSSRMaxSteps = - 1;
+let _lastSSRMaxDistance = - 1;
+let _lastSSRThickness = - 1;
+let _lastSSRIntensity = - 1;
+let _lastSSRDebug = - 1;
+
 function isHQFeatureEnabled( bitmask, individualCvar ) {
 
 	// Individual cvar > 0 forces the feature ON
@@ -1073,20 +1090,93 @@ function R_ApplyHQEffects() {
 
 	}
 
-	// Apply post-processing effects in correct order
-	// Order matters: AO (multiply) -> Bloom (additive) -> Tonemapping (HDR->LDR)
-	//
-	// When both bloom and tonemapping are enabled, we use an HDR pipeline:
-	// 1. Bloom renders scene to HDR buffer and outputs scene+bloom to HDR target
-	// 2. Tonemapping reads the HDR target and outputs to screen
-	//
-	// When only bloom is enabled, it additively blends onto the screen as before.
-	// When only tonemapping is enabled, it captures the scene and tonemaps to screen.
+	// Update SSR settings if changed
+	const ssrEnabled = isHQFeatureEnabled( HQ_SSR, cg_hq_ssr );
 
+	if ( ssrEnabled !== _lastSSREnabled ) {
+
+		SSR_SetEnabled( ssrEnabled );
+		_lastSSREnabled = ssrEnabled;
+
+	}
+
+	if ( ssrEnabled ) {
+
+		if ( cg_hq_ssr_maxsteps.value !== _lastSSRMaxSteps ) {
+
+			SSR_SetMaxSteps( cg_hq_ssr_maxsteps.value );
+			_lastSSRMaxSteps = cg_hq_ssr_maxsteps.value;
+
+		}
+
+		if ( cg_hq_ssr_maxdistance.value !== _lastSSRMaxDistance ) {
+
+			SSR_SetMaxDistance( cg_hq_ssr_maxdistance.value );
+			_lastSSRMaxDistance = cg_hq_ssr_maxdistance.value;
+
+		}
+
+		if ( cg_hq_ssr_thickness.value !== _lastSSRThickness ) {
+
+			SSR_SetThickness( cg_hq_ssr_thickness.value );
+			_lastSSRThickness = cg_hq_ssr_thickness.value;
+
+		}
+
+		if ( cg_hq_ssr_intensity.value !== _lastSSRIntensity ) {
+
+			SSR_SetIntensity( cg_hq_ssr_intensity.value );
+			_lastSSRIntensity = cg_hq_ssr_intensity.value;
+
+		}
+
+		if ( cg_hq_ssr_debug.value !== _lastSSRDebug ) {
+
+			SSR_SetDebugMode( cg_hq_ssr_debug.value );
+			_lastSSRDebug = cg_hq_ssr_debug.value;
+
+		}
+
+	}
+
+	// Apply post-processing effects in correct order
+	// Order: AO (multiply) -> SSR (reflections) -> Bloom (additive) -> Tonemapping (HDR->LDR)
+	//
+	// Pipeline integration:
+	// - SSR outputs scene+reflections to HDR target
+	// - Bloom uses SSR output (or renders scene if no SSR) and adds bloom
+	// - Tonemapping converts final HDR result to screen
+
+	// Determine what input to pass through the pipeline
+	let pipelineInput = null; // null means effects should render scene themselves
+
+	// Apply SSR first - it outputs scene+reflections
+	if ( ssrEnabled ) {
+
+		if ( bloomEnabled || tonemappingEnabled ) {
+
+			// SSR outputs to target for further processing
+			const ssrTarget = SSR_ApplyToTarget();
+			if ( ssrTarget ) {
+
+				pipelineInput = ssrTarget.texture;
+
+			}
+
+		} else {
+
+			// SSR only - output directly to screen
+			SSR_Apply();
+
+		}
+
+	}
+
+	// Apply bloom and/or tonemapping
 	if ( bloomEnabled && tonemappingEnabled ) {
 
 		// Combined HDR pipeline: bloom outputs to HDR target, tonemapping reads it
-		const hdrTarget = Bloom_ApplyToTarget();
+		const hdrTarget = Bloom_ApplyToTarget( pipelineInput );
 		if ( hdrTarget ) {
 
 			Tonemapping_ApplyToTexture( hdrTarget.texture );
@@ -1101,21 +1191,29 @@ function R_ApplyHQEffects() {
 	} else if ( bloomEnabled ) {
 
 		// Bloom only: additive blend to screen
+		// Note: if SSR was enabled, pipelineInput has the SSR result but
+		// Bloom_Apply doesn't accept input, so SSR already rendered to screen
 		Bloom_Apply();
 
 	} else if ( tonemappingEnabled ) {
 
-		// Tonemapping only: capture scene and tonemap
-		Tonemapping_Apply();
+		// Tonemapping only
+		if ( pipelineInput ) {
+
+			// Use SSR output
+			Tonemapping_ApplyToTexture( pipelineInput );
+
+		} else {
+
+			// Capture scene and tonemap
+			Tonemapping_Apply();
+
+		}
 
 	}
 
 	// Note: When all effects are disabled, the main scene render from
 	// renderer.render(scene, camera) above is already on screen
-
-	// Future: add other HQ effects here
-	// if (isHQFeatureEnabled(HQ_SSR, cg_hq_ssr)) { SSR_Apply(); }
-	// etc.
 
 }
 

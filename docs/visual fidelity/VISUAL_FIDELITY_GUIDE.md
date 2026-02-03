@@ -46,7 +46,7 @@ Individual `cg_hq_xxx` variables override the bitmask when explicitly set.
 
 ## Techniques
 
-### 1. Screen Space Reflections (SSR)
+### 1. Screen Space Reflections (SSR) ✅
 
 **What it does:** Creates realistic reflections on floors and wet surfaces by ray-marching in screen space.
 
@@ -438,10 +438,9 @@ For best visual improvement with minimal performance cost:
 1. ✅ **GTAO** - Huge visual improvement, low cost - `cg_hq_ao 1`
 2. ✅ **Bloom** - Makes lights pop, very cheap - `cg_hq_bloom 1`
 3. ✅ **Tonemapping** - Better colors, almost free - `cg_hq_tonemapping 1`
-4. **Soft Shadows** - Noticeable quality boost
-5. **SSR** - Impressive on floors/water
-6. **Volumetric** - Atmospheric but expensive
-7. **GI** - Most complex, save for last
+4. ✅ **SSR** - Impressive on floors/water - `cg_hq_ssr 1`
+5. **Volumetric** - Atmospheric but expensive
+6. **GI** - Most complex, save for last
 
 ---
 
