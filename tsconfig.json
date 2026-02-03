@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "three": ["node_modules/@types/three"],
+      "three/addons/*": ["node_modules/@types/three/examples/jsm/*"]
+    }
+  },
+  "include": [
+    "src/**/*.js",
+    "main.js",
+    "serve.js"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

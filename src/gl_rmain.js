@@ -24,7 +24,7 @@ import {
 } from './r_part.js';
 import { Debug_UpdateOverlay, Debug_ClearLabels } from './debug_overlay.js';
 import {
-	GTAO_Init, GTAO_Apply, GTAO_SetEnabled, GTAO_SetRadius, GTAO_SetIntensity, GTAO_Resize
+	GTAO_Init, GTAO_Apply, GTAO_SetEnabled, GTAO_SetRadius, GTAO_SetIntensity
 } from './gl_gtao.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,

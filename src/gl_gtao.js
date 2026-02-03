@@ -3,7 +3,7 @@
 // by Jorge Jimenez et al. (Activision)
 
 import * as THREE from 'three';
-import { renderer, vid } from './vid.js';
+import { renderer, vid, VID_AddResizeCallback } from './vid.js';
 import { scene, camera } from './gl_rmain.js';
 
 //============================================================================
@@ -292,21 +292,19 @@ void main() {
 }
 `;
 
-// Composite shader - blends AO with the scene
+// Composite shader - applies AO as multiply blend overlay
 const compositeFragmentShader = /* glsl */`
 precision highp float;
 
 varying vec2 vUv;
 
-uniform sampler2D tScene;
 uniform sampler2D tAO;
 
 void main() {
-	vec4 sceneColor = texture2D(tScene, vUv);
 	float ao = texture2D(tAO, vUv).r;
 
-	// Apply AO multiplicatively
-	gl_FragColor = vec4(sceneColor.rgb * ao, sceneColor.a);
+	// Output AO value - will be used with multiply blending
+	gl_FragColor = vec4(ao, ao, ao, 1.0);
 }
 `;
 
@@ -397,16 +395,18 @@ function createMaterials() {
 		depthWrite: false
 	} );
 
-	// Composite material
+	// Composite material - uses multiply blending to darken scene with AO
 	compositeMaterial = new THREE.ShaderMaterial( {
 		uniforms: {
-			tScene: { value: null },
 			tAO: { value: null }
 		},
 		vertexShader: gtaoVertexShader,
 		fragmentShader: compositeFragmentShader,
 		depthTest: false,
-		depthWrite: false
+		depthWrite: false,
+		transparent: true,
+		blending: THREE.MultiplyBlending,
+		premultipliedAlpha: true
 	} );
 
 }
@@ -429,6 +429,9 @@ export function GTAO_Init() {
 	createRenderTargets();
 	createMaterials();
 	createScreenQuad();
+
+	// Register for resize events
+	VID_AddResizeCallback( GTAO_Resize );
 
 	gtaoInitialized = true;
 
@@ -505,7 +508,6 @@ export function GTAO_SetFalloff( value ) {
 //============================================================================
 
 let frameCount = 0;
-let sceneRenderTarget = null;
 
 export function GTAO_Apply() {
 
@@ -516,18 +518,6 @@ export function GTAO_Apply() {
 
 	const width = vid.width;
 	const height = vid.height;
-
-	// Create scene render target if needed (to capture the scene for compositing)
-	if ( ! sceneRenderTarget || sceneRenderTarget.width !== width || sceneRenderTarget.height !== height ) {
-
-		if ( sceneRenderTarget ) sceneRenderTarget.dispose();
-		sceneRenderTarget = new THREE.WebGLRenderTarget( width, height, {
-			minFilter: THREE.LinearFilter,
-			magFilter: THREE.LinearFilter,
-			format: THREE.RGBAFormat
-		} );
-
-	}
 
 	// Store current render target
 	const currentRenderTarget = renderer.getRenderTarget();
@@ -578,14 +568,7 @@ export function GTAO_Apply() {
 	renderer.setRenderTarget( aoRenderTarget );
 	renderer.render( screenScene, screenCamera );
 
-	// 6. Composite AO onto the screen
-	// First, copy current framebuffer to texture (we need to render scene again)
-	renderer.setRenderTarget( sceneRenderTarget );
-	scene.overrideMaterial = null;
-	renderer.render( scene, camera );
-
-	// Now composite
-	compositeMaterial.uniforms.tScene.value = sceneRenderTarget.texture;
+	// 6. Composite AO onto the screen using multiply blending
 	compositeMaterial.uniforms.tAO.value = aoRenderTarget.texture;
 
 	screenQuad.material = compositeMaterial;
@@ -604,7 +587,6 @@ export function GTAO_Dispose() {
 	if ( normalRenderTarget ) normalRenderTarget.dispose();
 	if ( aoRenderTarget ) aoRenderTarget.dispose();
 	if ( aoBlurRenderTarget ) aoBlurRenderTarget.dispose();
-	if ( sceneRenderTarget ) sceneRenderTarget.dispose();
 
 	if ( depthMaterial ) depthMaterial.dispose();
 	if ( normalMaterial ) normalMaterial.dispose();

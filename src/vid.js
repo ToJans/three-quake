@@ -3,7 +3,6 @@
 import * as THREE from 'three';
 import { Sys_Error, Sys_Printf } from './sys.js';
 import { Con_Printf } from './console.js';
-import { GTAO_Resize } from './gl_gtao.js';
 
 //
 // vid.h constants
@@ -79,6 +78,15 @@ export let vid_menukeyfn = null;
 
 export let renderer = null; // THREE.WebGLRenderer
 export let canvas = null; // HTMLCanvasElement
+
+// Resize callbacks for post-processing systems
+const _resizeCallbacks = [];
+
+export function VID_AddResizeCallback( callback ) {
+
+	_resizeCallbacks.push( callback );
+
+}
 
 //============================================================================
 // VID_SetPalette
@@ -217,8 +225,12 @@ export function VID_Init( palette ) {
 
 		renderer.setSize( canvas.width, canvas.height );
 
-		// Resize HQ post-processing buffers
-		GTAO_Resize( canvas.width, canvas.height );
+		// Notify resize callbacks (for post-processing buffers, etc.)
+		for ( const cb of _resizeCallbacks ) {
+
+			cb( canvas.width, canvas.height );
+
+		}
 
 	} );
 
