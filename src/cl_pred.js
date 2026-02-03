@@ -87,6 +87,7 @@ for ( let i = 0; i < UPDATE_BACKUP; i++ ) {
 // Sequence tracking
 let outgoing_sequence = 0; // Next command to send
 let incoming_sequence = 0; // Last acknowledged command from server
+let validsequence = 0; // Last valid server frame sequence (0 = no valid data yet)
 
 // Predicted position (used for rendering)
 export const cl_simorg = new Float32Array( 3 ); // Simulated/predicted origin
@@ -115,6 +116,18 @@ CL_GetOutgoingSequence / CL_GetIncomingSequence
 */
 export function CL_GetOutgoingSequence() { return outgoing_sequence; }
 export function CL_GetIncomingSequence() { return incoming_sequence; }
+
+/*
+=================
+CL_SetValidSequence
+
+Called when we receive valid entity/player data from server.
+Set to 0 to invalidate (e.g., on error or disconnect).
+=================
+*/
+export function CL_SetValidSequence( seq ) {
+	validsequence = seq;
+}
 
 /*
 =================
@@ -525,6 +538,10 @@ export function CL_PredictMove() {
 	if ( cl.intermission !== 0 )
 		return;
 
+	// Check if we have valid server data to predict from
+	if ( validsequence === 0 )
+		return;
+
 	// Check if we have valid frames to predict from
 	if ( outgoing_sequence - incoming_sequence >= UPDATE_BACKUP - 1 )
 		return;
@@ -633,6 +650,7 @@ Called on level change or disconnect
 export function CL_ResetPrediction() {
 	outgoing_sequence = 0;
 	incoming_sequence = 0;
+	validsequence = 0;
 	cls_latency = 0;
 
 	cl_simorg.fill( 0 );

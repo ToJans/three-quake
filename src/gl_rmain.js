@@ -553,6 +553,8 @@ export function R_DrawEntitiesOnList() {
 // R_DrawViewModel
 //============================================================================
 
+const SHADEDOT_QUANT = 16;
+
 export function R_DrawViewModel() {
 
 	if ( ! r_drawviewmodel.value )
@@ -580,25 +582,36 @@ export function R_DrawViewModel() {
 	if ( ! currententity || ! currententity.model )
 		return;
 
-	// hack the depth range to prevent view model from poking into walls
-	// Original Quake used glDepthRange(0, 0.3) to compress weapon depth values
-	// into the first 30% of the depth buffer, making it always appear in front
-	const gl = renderer.getContext();
-	gl.depthRange( 0, 0.3 );
-
-	// Draw the viewmodel
+	// Use the standard R_DrawAliasModel which handles lighting and adds to scene
 	R_DrawAliasModel( currententity );
 
-	// Restore normal depth range
-	gl.depthRange( 0, 1 );
+	// Apply polygonOffset to prevent clipping through walls
+	// This pushes the weapon's depth values toward the camera
+	const mesh = currententity._aliasMesh;
+	if ( mesh && mesh.material ) {
+
+		// Need to clone material if it's shared, to avoid affecting other models
+		if ( ! mesh.material._isViewmodelMaterial ) {
+
+			mesh.material = mesh.material.clone();
+			mesh.material._isViewmodelMaterial = true;
+
+		}
+
+		mesh.material.polygonOffset = true;
+		mesh.material.polygonOffsetFactor = - 1;
+		mesh.material.polygonOffsetUnits = - 1;
+
+		// Render after other opaque objects to ensure proper depth interaction
+		mesh.renderOrder = 100;
+
+	}
 
 }
 
 //============================================================================
 // R_DrawAliasModel (stub -- full implementation requires gl_mesh.js)
 //============================================================================
-
-const SHADEDOT_QUANT = 16;
 
 // Track entity meshes currently in the scene for efficient add/remove
 let _entityMeshesInScene = new Set();

@@ -49,7 +49,7 @@ import { VectorCopy } from './mathlib.js';
 import { V_ParseDamage } from './view.js';
 import { Mod_ForName } from './gl_model.js';
 import { CL_SetServerState, CL_AcknowledgeCommand,
-	CL_FindAcknowledgedSequence } from './cl_pred.js';
+	CL_FindAcknowledgedSequence, CL_SetValidSequence } from './cl_pred.js';
 import { R_TranslatePlayerSkin } from './gl_rmisc.js';
 import { R_NewMap } from './gl_rmisc.js';
 import { R_ParseParticleEffect, R_AddEfrags } from './render.js';
@@ -680,6 +680,9 @@ export function CL_ParseClientdata( bits ) {
 		// This provides the base position/velocity for prediction replay
 		const ent = cl_entities[ cl.viewentity ];
 		CL_SetServerState( ent.msg_origins[ 0 ], cl.mvelocity[ 0 ], cl.onground );
+
+		// Mark that we have valid server data for prediction
+		CL_SetValidSequence( ackSeq >= 0 ? ackSeq : 1 );
 
 	}
 
