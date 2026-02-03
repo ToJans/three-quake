@@ -52,6 +52,7 @@ R_PolyBlend();                   // Screen overlays (must be last)
 | `src/gl_rmain.js` | Main renderer, camera, scene, cvars, R_RenderView |
 | `src/gl_rmisc.js` | R_Init, cvar registration |
 | `src/gl_gtao.js` | GTAO ambient occlusion post-process |
+| `src/gl_bloom.js` | HDR Bloom post-process |
 | `src/vid.js` | WebGLRenderer setup, resize handling |
 | `src/cvar.js` | Console variable system |
 
@@ -124,6 +125,31 @@ cg_hq_ao_debug 0    # Normal rendering
 2. `cg_hq_ao_debug 4` (normals) - Verify normals are captured correctly
 3. `cg_hq_ao_debug 2` (AO) - See raw AO output
 4. `cg_hq_ao_debug 0` (normal) - Final blended result
+
+---
+
+## Bloom Debug Modes
+
+The Bloom composite shader has debug modes controlled by the `cg_hq_bloom_debug` console variable:
+
+| Value | Mode | Description |
+|-------|------|-------------|
+| 0 | Normal | Apply bloom with additive blending |
+| 1 | Show Bloom | Display bloom contribution only |
+
+**To enable debug mode**, use the console:
+```
+cg_hq_bloom_debug 1    # Show bloom only
+cg_hq_bloom_debug 0    # Normal rendering
+```
+
+**Bloom parameters:**
+```
+cg_hq_bloom 1                # Enable bloom
+cg_hq_bloom_threshold 0.8    # Brightness cutoff (0.0-1.0)
+cg_hq_bloom_intensity 0.5    # Bloom strength
+cg_hq_bloom_radius 1.0       # Blur spread multiplier
+```
 
 ---
 
@@ -217,6 +243,24 @@ The shader outputs the AO value (0-1) which multiplies with the existing framebu
 - AO = 1.0 → No change (fully lit)
 - AO = 0.5 → 50% darkening
 - AO = 0.0 → Full black (fully occluded)
+
+---
+
+## Additive Blending for Bloom
+
+To brighten the scene with bloom glow:
+
+```javascript
+compositeMaterial = new THREE.ShaderMaterial({
+    // ...
+    transparent: true,
+    blending: THREE.AdditiveBlending
+});
+```
+
+The shader outputs bloom color values which add to the existing framebuffer:
+- Bloom = (0,0,0) → No change
+- Bloom = (0.5,0.3,0.1) → Warm glow added to scene
 
 ---
 

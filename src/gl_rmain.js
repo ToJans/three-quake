@@ -27,6 +27,10 @@ import {
 	GTAO_Init, GTAO_Apply, GTAO_SetEnabled, GTAO_SetRadius, GTAO_SetIntensity, GTAO_SetDebugMode
 } from './gl_gtao.js';
 import {
+	Bloom_Init, Bloom_Apply, Bloom_SetEnabled, Bloom_SetThreshold, Bloom_SetIntensity,
+	Bloom_SetRadius, Bloom_SetDebugMode
+} from './gl_bloom.js';
+import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_lightstyle
 } from './client.js';
@@ -206,10 +210,16 @@ export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '2.0', true );
 export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.5', true );
 export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=white, 2=AO, 3=depth, 4=normals
 
+// Bloom cvars
+export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom
+export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.8', true );
+export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '0.5', true );
+export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '1.0', true );
+export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' ); // 0=off, 1=bloom only
+
 // Placeholder cvars for future features (documented in visual fidelity guide)
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // Screen Space Reflections
 export const cg_hq_gi = new cvar_t( 'cg_hq_gi', '0', true ); // Global Illumination
-export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom
 export const cg_hq_shadows = new cvar_t( 'cg_hq_shadows', '0', true ); // Soft Shadows (PCSS)
 export const cg_hq_volumetric = new cvar_t( 'cg_hq_volumetric', '0', true ); // Volumetric Lighting
 export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true ); // HDR Tonemapping
@@ -927,6 +937,12 @@ let _lastAORadius = - 1;
 let _lastAOIntensity = - 1;
 let _lastAODebug = - 1;
 
+let _lastBloomEnabled = false;
+let _lastBloomThreshold = - 1;
+let _lastBloomIntensity = - 1;
+let _lastBloomRadius = - 1;
+let _lastBloomDebug = - 1;
+
 function isHQFeatureEnabled( bitmask, individualCvar ) {
 
 	// Individual cvar takes precedence if explicitly set to non-zero
@@ -977,9 +993,53 @@ function R_ApplyHQEffects() {
 
 	}
 
+	// Update Bloom settings if changed
+	const bloomEnabled = isHQFeatureEnabled( HQ_BLOOM, cg_hq_bloom );
+
+	if ( bloomEnabled !== _lastBloomEnabled ) {
+
+		Bloom_SetEnabled( bloomEnabled );
+		_lastBloomEnabled = bloomEnabled;
+
+	}
+
+	if ( bloomEnabled ) {
+
+		if ( cg_hq_bloom_threshold.value !== _lastBloomThreshold ) {
+
+			Bloom_SetThreshold( cg_hq_bloom_threshold.value );
+			_lastBloomThreshold = cg_hq_bloom_threshold.value;
+
+		}
+
+		if ( cg_hq_bloom_intensity.value !== _lastBloomIntensity ) {
+
+			Bloom_SetIntensity( cg_hq_bloom_intensity.value );
+			_lastBloomIntensity = cg_hq_bloom_intensity.value;
+
+		}
+
+		if ( cg_hq_bloom_radius.value !== _lastBloomRadius ) {
+
+			Bloom_SetRadius( cg_hq_bloom_radius.value );
+			_lastBloomRadius = cg_hq_bloom_radius.value;
+
+		}
+
+		if ( cg_hq_bloom_debug.value !== _lastBloomDebug ) {
+
+			Bloom_SetDebugMode( cg_hq_bloom_debug.value );
+			_lastBloomDebug = cg_hq_bloom_debug.value;
+
+		}
+
+		// Apply Bloom
+		Bloom_Apply();
+
+	}
+
 	// Future: add other HQ effects here
 	// if (isHQFeatureEnabled(HQ_SSR, cg_hq_ssr)) { SSR_Apply(); }
-	// if (isHQFeatureEnabled(HQ_BLOOM, cg_hq_bloom)) { Bloom_Apply(); }
 	// etc.
 
 }

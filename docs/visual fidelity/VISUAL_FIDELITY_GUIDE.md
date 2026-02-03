@@ -437,8 +437,8 @@ Target: **16.67ms** per frame (60 FPS)
 
 For best visual improvement with minimal performance cost:
 
-1. **GTAO** - Huge visual improvement, low cost
-2. **Bloom** - Makes lights pop, very cheap
+1. ✅ **GTAO** - Huge visual improvement, low cost - `cg_hq_ao 1`
+2. ✅ **Bloom** - Makes lights pop, very cheap - `cg_hq_bloom 1`
 3. **Tonemapping** - Better colors, almost free
 4. **Soft Shadows** - Noticeable quality boost
 5. **SSR** - Impressive on floors/water
@@ -520,6 +520,7 @@ Bit 6 (64)  = Tonemapping
 
 ### Console Commands
 
+**Ambient Occlusion (GTAO):**
 ```
 cg_hq_ao 1             # Enable GTAO
 cg_hq_ao_radius 3.0    # Increase AO radius
@@ -528,6 +529,22 @@ cg_hq_ao_debug 2       # Debug: show raw AO buffer
 cg_hq_ao_debug 3       # Debug: show depth buffer
 cg_hq_ao_debug 4       # Debug: show normal buffer
 cg_hq_ao_debug 0       # Debug off (normal rendering)
+```
+
+**HDR Bloom:**
+```
+cg_hq_bloom 1              # Enable bloom
+cg_hq_bloom_threshold 0.8  # Brightness cutoff (lower = more glow)
+cg_hq_bloom_intensity 0.5  # Bloom strength
+cg_hq_bloom_radius 1.0     # Blur spread multiplier
+cg_hq_bloom_debug 1        # Debug: show bloom only
+cg_hq_bloom_debug 0        # Debug off (normal rendering)
+```
+
+**Master Bitmask:**
+```
 cg_hq 2                # Enable AO via bitmask
+cg_hq 8                # Enable Bloom via bitmask
+cg_hq 10               # Enable AO + Bloom (2+8)
 cg_hq 127              # Enable all features
 ```
