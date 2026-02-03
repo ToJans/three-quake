@@ -237,7 +237,7 @@ export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.3', true 
 // Tonemapping (bit 3)
 export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true );
 export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true );
-export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '3.0', true );
+export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '2.2', true );
 
 //============================================================================
 // v_blend -- screen blend color for damage/powerups

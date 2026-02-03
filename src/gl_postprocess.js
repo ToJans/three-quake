@@ -142,7 +142,13 @@ function updateThreeParams() {
 
 	if ( threeGtaoPass ) {
 
+		const wasEnabled = threeGtaoPass.enabled;
 		threeGtaoPass.enabled = aoForce === 1 || ( aoForce === 0 && aoEnabled );
+		if ( wasEnabled !== threeGtaoPass.enabled ) {
+
+			console.log( '[AO] enabled:', threeGtaoPass.enabled, '(aoForce:', aoForce, 'aoEnabled:', aoEnabled, ')' );
+
+		}
 		threeGtaoPass.updateGtaoMaterial( {
 			radius: parseFloat( cg_hq_ao_radius.value ) || 6,
 			scale: parseFloat( cg_hq_ao_intensity.value ) || 0.3
@@ -200,13 +206,14 @@ export function PostProcess_Init() {
 
 export function PostProcess_Render() {
 
-	// Check what's enabled
+	// Check what's enabled (for early return - any effect needs postprocessing)
 	const hqValue = cg_hq.value | 0;
-	const ssrEnabled = ( hqValue & 1 ) !== 0 || ( cg_hq_ssr.value | 0 ) === 1;
-	const aoEnabled = ( hqValue & 2 ) !== 0 || ( cg_hq_ao.value | 0 ) === 1;
-	const bloomEnabled = ( hqValue & 4 ) !== 0 || ( cg_hq_bloom.value | 0 ) === 1;
+	const ssrWanted = ( hqValue & 1 ) !== 0 || ( cg_hq_ssr.value | 0 ) === 1;
+	const aoWanted = ( hqValue & 2 ) !== 0 || ( cg_hq_ao.value | 0 ) === 1;
+	const bloomWanted = ( hqValue & 4 ) !== 0 || ( cg_hq_bloom.value | 0 ) === 1;
+	const tonemappingWanted = ( hqValue & 8 ) !== 0 || ( cg_hq_tonemapping.value | 0 ) === 1;
 
-	if ( ! ssrEnabled && ! aoEnabled && ! bloomEnabled ) {
+	if ( ! ssrWanted && ! aoWanted && ! bloomWanted && ! tonemappingWanted ) {
 
 		return false;
 
