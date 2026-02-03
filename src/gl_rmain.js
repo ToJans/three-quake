@@ -212,7 +212,7 @@ export const gl_max_size = new cvar_t( 'gl_max_size', '1024' );
 //============================================================================
 
 // Master bitmask: bit 0=SSR, bit 1=AO, bit 2=GI, bit 3=Bloom, bit 4=Shadows, bit 5=Volumetric, bit 6=Tonemapping
-export const cg_hq = new cvar_t( 'cg_hq', '75', true ); // bitmask: 1=SSR, 2=AO, 8=Bloom, 64=Tonemapping (75=all)
+export const cg_hq = new cvar_t( 'cg_hq', '74', true ); // bitmask: 1=SSR, 2=AO, 8=Bloom, 64=Tonemapping (74=no SSR)
 
 // Individual feature toggles
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true ); // Ambient Occlusion (0=use cg_hq, 1=force on, -1=force off)
