@@ -506,45 +506,41 @@ Bit 3 (8) = Tonemapping
 
 ### Console Commands
 
+**SSR (Screen Space Reflections):**
+```
+cg_hq_ssr 1                # Enable SSR
+cg_hq_ssr_maxdistance 500  # Max reflection distance (Quake units)
+cg_hq_ssr_thickness 10     # Depth tolerance (Quake units)
+cg_hq_ssr_intensity 1.0    # Reflection strength
+```
+
 **Ambient Occlusion (GTAO):**
 ```
 cg_hq_ao 1             # Enable GTAO
-cg_hq_ao_radius 3.0    # Increase AO radius
-cg_hq_ao_intensity 2   # Stronger AO effect
-cg_hq_ao_debug 2       # Debug: show raw AO buffer
-cg_hq_ao_debug 3       # Debug: show depth buffer
-cg_hq_ao_debug 4       # Debug: show normal buffer
-cg_hq_ao_debug 0       # Debug off (normal rendering)
+cg_hq_ao_radius 6      # AO radius (Quake units)
+cg_hq_ao_intensity 0.3 # AO strength
 ```
 
 **HDR Bloom:**
 ```
 cg_hq_bloom 1              # Enable bloom
-cg_hq_bloom_threshold 0.0  # Brightness cutoff (0 = no threshold)
-cg_hq_bloom_intensity 1.5  # Bloom strength (subtle)
-cg_hq_bloom_radius 2.0     # Blur spread multiplier
-cg_hq_bloom_debug 3        # Debug: show captured scene
-cg_hq_bloom_debug 2        # Debug: show bright pass extraction
-cg_hq_bloom_debug 1        # Debug: show bloom only
-cg_hq_bloom_debug 0        # Debug off (normal rendering)
+cg_hq_bloom_threshold 0.15 # Brightness cutoff
+cg_hq_bloom_intensity 0.7  # Bloom strength
+cg_hq_bloom_radius 0.3     # Blur spread
 ```
 
 **HDR Tonemapping:**
 ```
 cg_hq_tonemapping 1               # Enable tonemapping
-cg_hq_tonemapping_operator 0      # 0=ACES (default), 1=Reinhard, 2=Uncharted2
-cg_hq_tonemapping_exposure 1.0    # Scene exposure (1.0 = neutral)
-cg_hq_tonemapping_gamma 2.2       # Display gamma correction
-cg_hq_tonemapping_debug 3         # Debug: show raw HDR values
-cg_hq_tonemapping_debug 2         # Debug: show luminance
-cg_hq_tonemapping_debug 1         # Debug: exposure only, no tonemapping
-cg_hq_tonemapping_debug 0         # Debug off (normal rendering)
+cg_hq_tonemapping_operator 0      # 0=ACES, 1=Reinhard, 2=Cineon, 3=AgX, 4=Neutral
+cg_hq_tonemapping_exposure 3.0    # Scene exposure
 ```
 
 **Master Bitmask:**
 ```
+cg_hq 1                # Enable SSR via bitmask
 cg_hq 2                # Enable AO via bitmask
 cg_hq 4                # Enable Bloom via bitmask
-cg_hq 6                # Enable AO + Bloom (2+4)
-cg_hq 15               # Enable all features (1+2+4+8)
+cg_hq 8                # Enable Tonemapping via bitmask
+cg_hq 15               # Enable all features (default)
 ```

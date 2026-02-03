@@ -219,34 +219,25 @@ export const cg_hq = new cvar_t( 'cg_hq', '15', true ); // 15 = all on
 
 // SSR (bit 0)
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true );
-export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '64', true );
 export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true );
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true );
 export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true );
-export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.8', true );
-export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '1.0', true );
-export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '0.1', true );
-export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' );
 
 // AO (bit 1)
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true );
 export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '6', true );
 export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '0.3', true );
-export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' );
 
 // Bloom (bit 2)
 export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true );
 export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.15', true );
 export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '0.7', true );
 export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.3', true );
-export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' );
 
 // Tonemapping (bit 3)
 export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true );
 export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true );
 export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '3.0', true );
-export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '3.0', true );
-export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' );
 
 //============================================================================
 // v_blend -- screen blend color for damage/powerups

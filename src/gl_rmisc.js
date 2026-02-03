@@ -14,12 +14,10 @@ import { d_lightstylevalue, r_viewleaf, r_norefresh, r_lightmap,
 	getTextureExtensionNumber, particletexture, playertextures,
 	envmap } from './glquake.js';
 import { r_worldentity, R_Init as R_Init_rmain, GL_BuildLightmaps as GL_BuildLightmaps_impl,
-	cg_hq, cg_hq_ao, cg_hq_ao_radius, cg_hq_ao_intensity, cg_hq_ao_debug,
-	cg_hq_bloom, cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius, cg_hq_bloom_debug,
+	cg_hq, cg_hq_ao, cg_hq_ao_radius, cg_hq_ao_intensity,
+	cg_hq_bloom, cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius,
 	cg_hq_tonemapping, cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure,
-	cg_hq_tonemapping_gamma, cg_hq_tonemapping_debug,
-	cg_hq_ssr, cg_hq_ssr_maxsteps, cg_hq_ssr_maxdistance, cg_hq_ssr_thickness,
-	cg_hq_ssr_intensity, cg_hq_ssr_floor, cg_hq_ssr_water, cg_hq_ssr_base, cg_hq_ssr_debug
+	cg_hq_ssr, cg_hq_ssr_maxdistance, cg_hq_ssr_thickness, cg_hq_ssr_intensity
 } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
@@ -272,29 +270,20 @@ export function R_Init() {
 
 		// HQ Visual Fidelity cvars
 		_Cvar_RegisterVariable( cg_hq );
+		_Cvar_RegisterVariable( cg_hq_ssr );
+		_Cvar_RegisterVariable( cg_hq_ssr_maxdistance );
+		_Cvar_RegisterVariable( cg_hq_ssr_thickness );
+		_Cvar_RegisterVariable( cg_hq_ssr_intensity );
 		_Cvar_RegisterVariable( cg_hq_ao );
 		_Cvar_RegisterVariable( cg_hq_ao_radius );
 		_Cvar_RegisterVariable( cg_hq_ao_intensity );
-		_Cvar_RegisterVariable( cg_hq_ao_debug );
 		_Cvar_RegisterVariable( cg_hq_bloom );
 		_Cvar_RegisterVariable( cg_hq_bloom_threshold );
 		_Cvar_RegisterVariable( cg_hq_bloom_intensity );
 		_Cvar_RegisterVariable( cg_hq_bloom_radius );
-		_Cvar_RegisterVariable( cg_hq_bloom_debug );
 		_Cvar_RegisterVariable( cg_hq_tonemapping );
 		_Cvar_RegisterVariable( cg_hq_tonemapping_operator );
 		_Cvar_RegisterVariable( cg_hq_tonemapping_exposure );
-		_Cvar_RegisterVariable( cg_hq_tonemapping_gamma );
-		_Cvar_RegisterVariable( cg_hq_tonemapping_debug );
-		_Cvar_RegisterVariable( cg_hq_ssr );
-		_Cvar_RegisterVariable( cg_hq_ssr_maxsteps );
-		_Cvar_RegisterVariable( cg_hq_ssr_maxdistance );
-		_Cvar_RegisterVariable( cg_hq_ssr_thickness );
-		_Cvar_RegisterVariable( cg_hq_ssr_intensity );
-		_Cvar_RegisterVariable( cg_hq_ssr_floor );
-		_Cvar_RegisterVariable( cg_hq_ssr_water );
-		_Cvar_RegisterVariable( cg_hq_ssr_base );
-		_Cvar_RegisterVariable( cg_hq_ssr_debug );
 
 	}
 
