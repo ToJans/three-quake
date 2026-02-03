@@ -456,12 +456,14 @@ function createMaterials() {
 			cameraFar: { value: 4096 }
 		},
 		vertexShader: depthVertexShader,
-		fragmentShader: depthFragmentShader
+		fragmentShader: depthFragmentShader,
+		side: THREE.DoubleSide // Water/lava use DoubleSide
 	} );
 
 	normalMaterial = new THREE.ShaderMaterial( {
 		vertexShader: normalVertexShader,
-		fragmentShader: normalFragmentShader
+		fragmentShader: normalFragmentShader,
+		side: THREE.DoubleSide
 	} );
 
 	reflectivityMaterial = new THREE.ShaderMaterial( {
@@ -471,7 +473,8 @@ function createMaterials() {
 			globalBaseReflectivity: { value: ssrBaseReflectivity }
 		},
 		vertexShader: reflectivityVertexShader,
-		fragmentShader: reflectivityFragmentShader
+		fragmentShader: reflectivityFragmentShader,
+		side: THREE.DoubleSide
 	} );
 
 	ssrMaterial = new THREE.ShaderMaterial( {

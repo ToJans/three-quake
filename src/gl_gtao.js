@@ -18,6 +18,7 @@ let depthRenderTarget = null;
 let normalRenderTarget = null;
 let aoRenderTarget = null;
 let aoBlurRenderTarget = null;
+let waterMaskRenderTarget = null; // Mask for water/lava (skip AO)
 
 // Materials
 let depthMaterial = null;
@@ -25,6 +26,7 @@ let normalMaterial = null;
 let gtaoMaterial = null;
 let blurMaterial = null;
 let compositeMaterial = null;
+let waterMaskMaterial = null; // Simple white material for water mask
 
 // Screen quad for post-processing
 let screenQuad = null;
@@ -286,12 +288,19 @@ varying vec2 vUv;
 uniform sampler2D tAO;
 uniform sampler2D tDepth;
 uniform sampler2D tNormal;
+uniform sampler2D tWaterMask;
 uniform float debugMode;
 
 void main() {
 	float ao = texture2D(tAO, vUv).r;
 	float depth = texture2D(tDepth, vUv).r;
 	vec3 normal = texture2D(tNormal, vUv).rgb;
+	float waterMask = texture2D(tWaterMask, vUv).r;
+
+	// Skip AO for water/lava surfaces (output white = no darkening)
+	if (waterMask > 0.5) {
+		ao = 1.0;
+	}
 
 	// Debug modes:
 	// 0 = normal AO multiply blend
@@ -299,6 +308,11 @@ void main() {
 	// 2 = show raw AO
 	// 3 = show depth buffer
 	// 4 = show normal buffer
+	// 5 = show water mask
+	if (debugMode > 4.5) {
+		gl_FragColor = vec4(waterMask, waterMask, waterMask, 1.0);
+		return;
+	}
 	if (debugMode > 3.5) {
 		gl_FragColor = vec4(normal, 1.0);
 		return;
@@ -358,6 +372,13 @@ function createRenderTargets() {
 		format: THREE.RGBAFormat
 	} );
 
+	// Water mask render target - identifies water/lava surfaces to skip AO
+	waterMaskRenderTarget = new THREE.WebGLRenderTarget( width, height, {
+		minFilter: THREE.NearestFilter,
+		magFilter: THREE.NearestFilter,
+		format: THREE.RGBAFormat
+	} );
+
 }
 
 // Get AO resolution (can be made configurable later)
@@ -376,13 +397,15 @@ function createMaterials() {
 			cameraFar: { value: 4096 }
 		},
 		vertexShader: depthVertexShader,
-		fragmentShader: depthFragmentShader
+		fragmentShader: depthFragmentShader,
+		side: THREE.DoubleSide // Water/lava use DoubleSide
 	} );
 
 	// Custom normal material - outputs view-space normals
 	normalMaterial = new THREE.ShaderMaterial( {
 		vertexShader: normalVertexShader,
-		fragmentShader: normalFragmentShader
+		fragmentShader: normalFragmentShader,
+		side: THREE.DoubleSide
 	} );
 
 	// GTAO material
@@ -426,7 +449,8 @@ function createMaterials() {
 			tAO: { value: null },
 			tDepth: { value: null },
 			tNormal: { value: null },
-			debugMode: { value: 0.0 } // 0=normal, 1=white, 2=AO, 3=depth, 4=normals
+			tWaterMask: { value: null },
+			debugMode: { value: 0.0 } // 0=normal, 1=white, 2=AO, 3=depth, 4=normals, 5=watermask
 		},
 		vertexShader: gtaoVertexShader,
 		fragmentShader: compositeFragmentShader,
@@ -435,6 +459,12 @@ function createMaterials() {
 		transparent: true,
 		blending: THREE.MultiplyBlending,
 		premultipliedAlpha: true
+	} );
+
+	// Water mask material - outputs white for water/lava surfaces
+	waterMaskMaterial = new THREE.MeshBasicMaterial( {
+		color: 0xffffff,
+		side: THREE.DoubleSide
 	} );
 
 }
@@ -478,6 +508,7 @@ export function GTAO_Resize( width, height ) {
 	normalRenderTarget.setSize( width, height );
 	aoRenderTarget.setSize( width, height );
 	aoBlurRenderTarget.setSize( width, height );
+	waterMaskRenderTarget.setSize( width, height );
 
 }
 
@@ -604,7 +635,38 @@ export function GTAO_Apply() {
 	renderer.setRenderTarget( aoRenderTarget );
 	renderer.render( screenScene, screenCamera );
 
-	// 6. Composite AO onto the screen
+	// 6. Render water mask - identifies water/lava surfaces to skip AO
+	renderer.setRenderTarget( waterMaskRenderTarget );
+	renderer.setClearColor( 0x000000, 1 );
+	renderer.clear( true, true, false );
+
+	// Find and render water meshes (those with userData.reflectivity > 0)
+	const waterMeshes = [];
+	scene.traverse( function ( object ) {
+
+		if ( object.isMesh && object.visible && object.userData.reflectivity > 0 ) {
+
+			waterMeshes.push( { mesh: object, originalMaterial: object.material } );
+			object.material = waterMaskMaterial;
+
+		}
+
+	} );
+
+	if ( waterMeshes.length > 0 ) {
+
+		renderer.render( scene, camera );
+
+		// Restore original materials
+		for ( const item of waterMeshes ) {
+
+			item.mesh.material = item.originalMaterial;
+
+		}
+
+	}
+
+	// 7. Composite AO onto the screen
 	// Save and disable all autoClear flags so we don't wipe the existing scene
 	const oldAutoClear = renderer.autoClear;
 	const oldAutoClearColor = renderer.autoClearColor;
@@ -619,6 +681,7 @@ export function GTAO_Apply() {
 	compositeMaterial.uniforms.tAO.value = aoRenderTarget.texture;
 	compositeMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
 	compositeMaterial.uniforms.tNormal.value = normalRenderTarget.texture;
+	compositeMaterial.uniforms.tWaterMask.value = waterMaskRenderTarget.texture;
 
 	// In any debug mode, use normal blending to show buffers directly
 	const debugMode = compositeMaterial.uniforms.debugMode.value;
@@ -656,12 +719,14 @@ export function GTAO_Dispose() {
 	if ( normalRenderTarget ) normalRenderTarget.dispose();
 	if ( aoRenderTarget ) aoRenderTarget.dispose();
 	if ( aoBlurRenderTarget ) aoBlurRenderTarget.dispose();
+	if ( waterMaskRenderTarget ) waterMaskRenderTarget.dispose();
 
 	if ( depthMaterial ) depthMaterial.dispose();
 	if ( normalMaterial ) normalMaterial.dispose();
 	if ( gtaoMaterial ) gtaoMaterial.dispose();
 	if ( blurMaterial ) blurMaterial.dispose();
 	if ( compositeMaterial ) compositeMaterial.dispose();
+	if ( waterMaskMaterial ) waterMaskMaterial.dispose();
 
 	gtaoInitialized = false;
 

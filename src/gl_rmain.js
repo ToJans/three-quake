@@ -212,30 +212,30 @@ export const gl_max_size = new cvar_t( 'gl_max_size', '1024' );
 //============================================================================
 
 // Master bitmask: bit 0=SSR, bit 1=AO, bit 2=GI, bit 3=Bloom, bit 4=Shadows, bit 5=Volumetric, bit 6=Tonemapping
-export const cg_hq = new cvar_t( 'cg_hq', '0', true ); // archived
+export const cg_hq = new cvar_t( 'cg_hq', '75', true ); // bitmask: 1=SSR, 2=AO, 8=Bloom, 64=Tonemapping (75=all)
 
 // Individual feature toggles
-export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '1', true ); // Ambient Occlusion (GTAO)
+export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true ); // Ambient Occlusion (0=use cg_hq, 1=force on, -1=force off)
 export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '2.0', true );
 export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.5', true );
 export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=white, 2=AO, 3=depth, 4=normals
 
 // Bloom cvars
-export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '1', true ); // HDR Bloom
+export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom (0=use cg_hq, 1=force on, -1=force off)
 export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.1', true );
 export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '1.7', true );
 export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.5', true ); // Blur spread multiplier
 export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' ); // 0=off, 1=bloom, 2=bright pass, 3=scene
 
 // Tonemapping cvars
-export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '1', true ); // HDR Tonemapping
+export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true ); // HDR Tonemapping (0=use cg_hq, 1=force on, -1=force off)
 export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true ); // 0=ACES, 1=Reinhard, 2=Uncharted2
 export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '1.0', true );
 export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '2.2', true );
 export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' ); // 0=off, 1=no tonemap, 2=luminance, 3=raw HDR
 
 // SSR cvars
-export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // Screen Space Reflections
+export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // SSR (0=use cg_hq, 1=force on, -1=force off)
 export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '32', true ); // Ray march steps
 export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '100', true ); // Max reflection distance
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '0.5', true ); // Depth tolerance
