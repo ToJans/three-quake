@@ -50,28 +50,52 @@ void main() {
 }
 `;
 
-// Depth shader - renders linear depth
+// Custom depth material vertex shader
+const depthVertexShader = /* glsl */`
+varying float vViewZ;
+
+void main() {
+	vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+	vViewZ = -mvPosition.z; // Negate because view space Z is negative
+	gl_Position = projectionMatrix * mvPosition;
+}
+`;
+
+// Custom depth material fragment shader - outputs linear depth
 const depthFragmentShader = /* glsl */`
-varying vec2 vUv;
+precision highp float;
+
+varying float vViewZ;
 uniform float cameraNear;
 uniform float cameraFar;
 
 void main() {
-	float depth = gl_FragCoord.z;
-	// Convert to linear depth
-	float linearDepth = (2.0 * cameraNear * cameraFar) / (cameraFar + cameraNear - depth * (cameraFar - cameraNear));
-	// Normalize to 0-1 range
-	linearDepth = (linearDepth - cameraNear) / (cameraFar - cameraNear);
+	// Normalize view Z to 0-1 range
+	float linearDepth = (vViewZ - cameraNear) / (cameraFar - cameraNear);
+	linearDepth = clamp(linearDepth, 0.0, 1.0);
 	gl_FragColor = vec4(linearDepth, linearDepth, linearDepth, 1.0);
 }
 `;
 
-// Normal shader - renders view-space normals
-const normalFragmentShader = /* glsl */`
-varying vec3 vNormal;
+// Custom normal material vertex shader
+const normalVertexShader = /* glsl */`
+varying vec3 vViewNormal;
 
 void main() {
-	vec3 normal = normalize(vNormal);
+	// Transform normal to view space
+	vViewNormal = normalize(normalMatrix * normal);
+	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+// Custom normal material fragment shader - outputs view-space normals
+const normalFragmentShader = /* glsl */`
+precision highp float;
+
+varying vec3 vViewNormal;
+
+void main() {
+	vec3 normal = normalize(vViewNormal);
 	// Pack normal into 0-1 range
 	gl_FragColor = vec4(normal * 0.5 + 0.5, 1.0);
 }
@@ -91,34 +115,29 @@ uniform float intensity;
 uniform float falloff;
 uniform float cameraNear;
 uniform float cameraFar;
-uniform mat4 projectionMatrix;
-uniform mat4 inverseProjectionMatrix;
+uniform mat4 cameraProjectionMatrix;
+uniform mat4 cameraInverseProjectionMatrix;
 uniform float frameCount;
 
 #define PI 3.14159265359
-#define SAMPLES 8
 
-// Reconstruct view-space position from depth
-vec3 getViewPosition(vec2 uv, float depth) {
-	// Convert UV to clip space
-	vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-	// Transform to view space
-	vec4 viewPos = inverseProjectionMatrix * clipPos;
-	return viewPos.xyz / viewPos.w;
-}
-
-// Get linear depth from depth buffer
+// Get linear depth from depth buffer (already linear 0-1)
 float getLinearDepth(vec2 uv) {
-	float depth = texture2D(tDepth, uv).r;
-	return depth;
+	return texture2D(tDepth, uv).r;
 }
 
-// Hash function for random sampling
-float hash(vec2 p) {
-	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+// Reconstruct view-space position from UV and linear depth
+vec3 getViewPosition(vec2 uv, float linearDepth) {
+	float viewZ = linearDepth * (cameraFar - cameraNear) + cameraNear;
+	vec2 ndc = uv * 2.0 - 1.0;
+	vec4 clipPos = vec4(ndc, 0.0, 1.0);
+	vec4 viewRay = cameraInverseProjectionMatrix * clipPos;
+	viewRay.xyz /= viewRay.w;
+	vec3 viewPos = viewRay.xyz * (viewZ / -viewRay.z);
+	return viewPos;
 }
 
-// Interleaved gradient noise for temporal stability
+// Noise for sampling variation
 float interleavedGradientNoise(vec2 position) {
 	vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
 	return fract(magic.z * fract(dot(position, magic.xy)));
@@ -126,111 +145,77 @@ float interleavedGradientNoise(vec2 position) {
 
 void main() {
 	vec2 texelSize = 1.0 / resolution;
-
-	// Sample depth and reconstruct position
 	float centerDepth = getLinearDepth(vUv);
 
 	// Skip sky/far plane
-	if (centerDepth > 0.999) {
+	if (centerDepth > 0.99) {
 		gl_FragColor = vec4(1.0);
 		return;
 	}
 
-	// Get view-space position
 	vec3 centerPos = getViewPosition(vUv, centerDepth);
-
-	// Get normal from G-buffer
 	vec3 normal = texture2D(tNormal, vUv).rgb * 2.0 - 1.0;
 	normal = normalize(normal);
 
-	// Calculate AO radius in screen space based on depth
-	float radiusPixels = (radius / max(-centerPos.z, 0.1)) * resolution.y * 0.5;
-	radiusPixels = clamp(radiusPixels, 3.0, 128.0);
+	// Screen-space radius based on depth
+	float radiusPixels = (radius / max(length(centerPos), 0.1)) * resolution.y * 0.25;
+	radiusPixels = clamp(radiusPixels, 2.0, 64.0);
 
-	// Random rotation angle per pixel (temporal noise)
 	float noise = interleavedGradientNoise(gl_FragCoord.xy + frameCount * 5.0);
-	float rotationAngle = noise * PI * 2.0;
-
-	// GTAO horizon-based sampling
 	float occlusion = 0.0;
 
-	// Slice-based approach: sample in multiple directions
 	const int NUM_DIRECTIONS = 4;
-	const int STEPS_PER_DIR = 4;
+	const int STEPS_PER_DIR = 3;
 
 	for (int dir = 0; dir < NUM_DIRECTIONS; dir++) {
 		float angle = (float(dir) + noise) * PI / float(NUM_DIRECTIONS);
 		vec2 direction = vec2(cos(angle), sin(angle));
-
-		// Track horizon angles for this direction
 		float horizonCos = -1.0;
 
 		for (int step = 1; step <= STEPS_PER_DIR; step++) {
 			float stepRadius = (float(step) / float(STEPS_PER_DIR)) * radiusPixels;
-			vec2 sampleOffset = direction * stepRadius * texelSize;
-			vec2 sampleUV = vUv + sampleOffset;
+			vec2 sampleUV = vUv + direction * stepRadius * texelSize;
 
-			// Skip out-of-bounds samples
-			if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) {
-				continue;
-			}
+			if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
 
 			float sampleDepth = getLinearDepth(sampleUV);
 			vec3 samplePos = getViewPosition(sampleUV, sampleDepth);
-
-			// Vector from center to sample
 			vec3 horizonVec = samplePos - centerPos;
 			float horizonDist = length(horizonVec);
 
-			// Skip distant samples
 			if (horizonDist > radius * 2.0) continue;
 
-			horizonVec = normalize(horizonVec);
-
-			// Compute horizon angle
+			horizonVec /= horizonDist;
 			float horizonAngle = dot(horizonVec, normal);
-
-			// Distance falloff
 			float distFalloff = 1.0 - smoothstep(0.0, radius, horizonDist * falloff);
-
-			// Update horizon
 			horizonCos = max(horizonCos, horizonAngle * distFalloff);
 		}
 
-		// Same for opposite direction
+		// Opposite direction
 		for (int step = 1; step <= STEPS_PER_DIR; step++) {
 			float stepRadius = (float(step) / float(STEPS_PER_DIR)) * radiusPixels;
-			vec2 sampleOffset = -direction * stepRadius * texelSize;
-			vec2 sampleUV = vUv + sampleOffset;
+			vec2 sampleUV = vUv - direction * stepRadius * texelSize;
 
-			if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) {
-				continue;
-			}
+			if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
 
 			float sampleDepth = getLinearDepth(sampleUV);
 			vec3 samplePos = getViewPosition(sampleUV, sampleDepth);
-
 			vec3 horizonVec = samplePos - centerPos;
 			float horizonDist = length(horizonVec);
 
 			if (horizonDist > radius * 2.0) continue;
 
-			horizonVec = normalize(horizonVec);
+			horizonVec /= horizonDist;
 			float horizonAngle = dot(horizonVec, normal);
 			float distFalloff = 1.0 - smoothstep(0.0, radius, horizonDist * falloff);
-
 			horizonCos = max(horizonCos, horizonAngle * distFalloff);
 		}
 
-		// Integrate AO for this direction
-		// Higher horizon = more occlusion
 		occlusion += max(0.0, horizonCos);
 	}
 
-	// Normalize and invert
+	// Normalize and invert (1 = no occlusion, 0 = full occlusion)
 	occlusion = 1.0 - (occlusion / float(NUM_DIRECTIONS));
-
-	// Apply intensity
 	occlusion = pow(occlusion, intensity);
 
 	gl_FragColor = vec4(vec3(occlusion), 1.0);
@@ -299,9 +284,37 @@ precision highp float;
 varying vec2 vUv;
 
 uniform sampler2D tAO;
+uniform sampler2D tDepth;
+uniform sampler2D tNormal;
+uniform float debugMode;
 
 void main() {
 	float ao = texture2D(tAO, vUv).r;
+	float depth = texture2D(tDepth, vUv).r;
+	vec3 normal = texture2D(tNormal, vUv).rgb;
+
+	// Debug modes:
+	// 0 = normal AO multiply blend
+	// 1 = white (test blending works)
+	// 2 = show raw AO
+	// 3 = show depth buffer
+	// 4 = show normal buffer
+	if (debugMode > 3.5) {
+		gl_FragColor = vec4(normal, 1.0);
+		return;
+	}
+	if (debugMode > 2.5) {
+		gl_FragColor = vec4(depth, depth, depth, 1.0);
+		return;
+	}
+	if (debugMode > 1.5) {
+		gl_FragColor = vec4(ao, ao, ao, 1.0);
+		return;
+	}
+	if (debugMode > 0.5) {
+		gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+		return;
+	}
 
 	// Output AO value - will be used with multiply blending
 	gl_FragColor = vec4(ao, ao, ao, 1.0);
@@ -317,32 +330,29 @@ function createRenderTargets() {
 	const width = vid.width;
 	const height = vid.height;
 
-	// Depth render target
+	// Depth render target - use linear filter for smooth sampling
 	depthRenderTarget = new THREE.WebGLRenderTarget( width, height, {
-		minFilter: THREE.NearestFilter,
-		magFilter: THREE.NearestFilter,
+		minFilter: THREE.LinearFilter,
+		magFilter: THREE.LinearFilter,
 		format: THREE.RGBAFormat,
 		type: THREE.FloatType
 	} );
 
-	// Normal render target
+	// Normal render target - use linear filter for smooth sampling
 	normalRenderTarget = new THREE.WebGLRenderTarget( width, height, {
-		minFilter: THREE.NearestFilter,
-		magFilter: THREE.NearestFilter,
-		format: THREE.RGBAFormat
-	} );
-
-	// AO render target (can be half resolution for performance)
-	const aoWidth = Math.floor( width * 0.5 );
-	const aoHeight = Math.floor( height * 0.5 );
-
-	aoRenderTarget = new THREE.WebGLRenderTarget( aoWidth, aoHeight, {
 		minFilter: THREE.LinearFilter,
 		magFilter: THREE.LinearFilter,
 		format: THREE.RGBAFormat
 	} );
 
-	aoBlurRenderTarget = new THREE.WebGLRenderTarget( aoWidth, aoHeight, {
+	// AO render target - full resolution for quality
+	aoRenderTarget = new THREE.WebGLRenderTarget( width, height, {
+		minFilter: THREE.LinearFilter,
+		magFilter: THREE.LinearFilter,
+		format: THREE.RGBAFormat
+	} );
+
+	aoBlurRenderTarget = new THREE.WebGLRenderTarget( width, height, {
 		minFilter: THREE.LinearFilter,
 		magFilter: THREE.LinearFilter,
 		format: THREE.RGBAFormat
@@ -350,15 +360,30 @@ function createRenderTargets() {
 
 }
 
+// Get AO resolution (can be made configurable later)
+function getAOResolution() {
+
+	return { width: vid.width, height: vid.height };
+
+}
+
 function createMaterials() {
 
-	// Depth material - override for all objects
-	depthMaterial = new THREE.MeshDepthMaterial( {
-		depthPacking: THREE.BasicDepthPacking
+	// Custom depth material - outputs linear depth in view space
+	depthMaterial = new THREE.ShaderMaterial( {
+		uniforms: {
+			cameraNear: { value: 4 },
+			cameraFar: { value: 4096 }
+		},
+		vertexShader: depthVertexShader,
+		fragmentShader: depthFragmentShader
 	} );
 
-	// Normal material - override for all objects
-	normalMaterial = new THREE.MeshNormalMaterial();
+	// Custom normal material - outputs view-space normals
+	normalMaterial = new THREE.ShaderMaterial( {
+		vertexShader: normalVertexShader,
+		fragmentShader: normalFragmentShader
+	} );
 
 	// GTAO material
 	gtaoMaterial = new THREE.ShaderMaterial( {
@@ -371,8 +396,8 @@ function createMaterials() {
 			falloff: { value: gtaoFalloff },
 			cameraNear: { value: 0.1 },
 			cameraFar: { value: 1000 },
-			projectionMatrix: { value: new THREE.Matrix4() },
-			inverseProjectionMatrix: { value: new THREE.Matrix4() },
+			cameraProjectionMatrix: { value: new THREE.Matrix4() },
+			cameraInverseProjectionMatrix: { value: new THREE.Matrix4() },
 			frameCount: { value: 0 }
 		},
 		vertexShader: gtaoVertexShader,
@@ -398,7 +423,10 @@ function createMaterials() {
 	// Composite material - uses multiply blending to darken scene with AO
 	compositeMaterial = new THREE.ShaderMaterial( {
 		uniforms: {
-			tAO: { value: null }
+			tAO: { value: null },
+			tDepth: { value: null },
+			tNormal: { value: null },
+			debugMode: { value: 0.0 } // 0=normal, 1=white, 2=AO, 3=depth, 4=normals
 		},
 		vertexShader: gtaoVertexShader,
 		fragmentShader: compositeFragmentShader,
@@ -414,6 +442,7 @@ function createMaterials() {
 function createScreenQuad() {
 
 	screenScene = new THREE.Scene();
+	screenScene.background = null; // No background - don't clear
 	screenCamera = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
 
 	const geometry = new THREE.PlaneGeometry( 2, 2 );
@@ -447,11 +476,8 @@ export function GTAO_Resize( width, height ) {
 
 	depthRenderTarget.setSize( width, height );
 	normalRenderTarget.setSize( width, height );
-
-	const aoWidth = Math.floor( width * 0.5 );
-	const aoHeight = Math.floor( height * 0.5 );
-	aoRenderTarget.setSize( aoWidth, aoHeight );
-	aoBlurRenderTarget.setSize( aoWidth, aoHeight );
+	aoRenderTarget.setSize( width, height );
+	aoBlurRenderTarget.setSize( width, height );
 
 }
 
@@ -523,6 +549,9 @@ export function GTAO_Apply() {
 	const currentRenderTarget = renderer.getRenderTarget();
 
 	// 1. Render depth buffer
+	depthMaterial.uniforms.cameraNear.value = camera.near;
+	depthMaterial.uniforms.cameraFar.value = camera.far;
+
 	renderer.setRenderTarget( depthRenderTarget );
 	scene.overrideMaterial = depthMaterial;
 	renderer.render( scene, camera );
@@ -535,16 +564,13 @@ export function GTAO_Apply() {
 	scene.overrideMaterial = null;
 
 	// 3. Compute GTAO
-	const aoWidth = Math.floor( width * 0.5 );
-	const aoHeight = Math.floor( height * 0.5 );
-
 	gtaoMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
 	gtaoMaterial.uniforms.tNormal.value = normalRenderTarget.texture;
-	gtaoMaterial.uniforms.resolution.value.set( aoWidth, aoHeight );
+	gtaoMaterial.uniforms.resolution.value.set( width, height );
 	gtaoMaterial.uniforms.cameraNear.value = camera.near;
 	gtaoMaterial.uniforms.cameraFar.value = camera.far;
-	gtaoMaterial.uniforms.projectionMatrix.value.copy( camera.projectionMatrix );
-	gtaoMaterial.uniforms.inverseProjectionMatrix.value.copy( camera.projectionMatrixInverse );
+	gtaoMaterial.uniforms.cameraProjectionMatrix.value.copy( camera.projectionMatrix );
+	gtaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy( camera.projectionMatrixInverse );
 	gtaoMaterial.uniforms.frameCount.value = frameCount % 64;
 
 	screenQuad.material = gtaoMaterial;
@@ -554,7 +580,7 @@ export function GTAO_Apply() {
 	// 4. Bilateral blur - horizontal pass
 	blurMaterial.uniforms.tAO.value = aoRenderTarget.texture;
 	blurMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
-	blurMaterial.uniforms.resolution.value.set( aoWidth, aoHeight );
+	blurMaterial.uniforms.resolution.value.set( width, height );
 	blurMaterial.uniforms.direction.value.set( 1, 0 );
 
 	screenQuad.material = blurMaterial;
@@ -568,12 +594,44 @@ export function GTAO_Apply() {
 	renderer.setRenderTarget( aoRenderTarget );
 	renderer.render( screenScene, screenCamera );
 
-	// 6. Composite AO onto the screen using multiply blending
+	// 6. Composite AO onto the screen
+	// Save and disable all autoClear flags so we don't wipe the existing scene
+	const oldAutoClear = renderer.autoClear;
+	const oldAutoClearColor = renderer.autoClearColor;
+	const oldAutoClearDepth = renderer.autoClearDepth;
+	const oldAutoClearStencil = renderer.autoClearStencil;
+
+	renderer.autoClear = false;
+	renderer.autoClearColor = false;
+	renderer.autoClearDepth = false;
+	renderer.autoClearStencil = false;
+
 	compositeMaterial.uniforms.tAO.value = aoRenderTarget.texture;
+	compositeMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
+	compositeMaterial.uniforms.tNormal.value = normalRenderTarget.texture;
+
+	// In debug mode >= 2, use normal blending to show buffers directly
+	const debugMode = compositeMaterial.uniforms.debugMode.value;
+	if ( debugMode > 1.5 ) {
+
+		compositeMaterial.blending = THREE.NormalBlending;
+		renderer.autoClear = true; // Clear to show AO buffer directly
+
+	} else {
+
+		compositeMaterial.blending = THREE.MultiplyBlending;
+
+	}
 
 	screenQuad.material = compositeMaterial;
 	renderer.setRenderTarget( currentRenderTarget );
 	renderer.render( screenScene, screenCamera );
+
+	// Restore autoClear state
+	renderer.autoClear = oldAutoClear;
+	renderer.autoClearColor = oldAutoClearColor;
+	renderer.autoClearDepth = oldAutoClearDepth;
+	renderer.autoClearStencil = oldAutoClearStencil;
 
 }
 
