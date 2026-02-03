@@ -70,8 +70,9 @@ function initThreeJS() {
 
 	// GTAO pass
 	threeGtaoPass = new GTAOPass( scene, camera, width, height );
-	threeGtaoPass.output = GTAOPass.OUTPUT.Default;
+	threeGtaoPass.output = GTAOPass.OUTPUT.Denoise;
 	threeGtaoPass.enabled = false;
+	threeGtaoPass.blendIntensity = 1.0;
 	threeComposer.addPass( threeGtaoPass );
 
 	// SSR pass
@@ -149,9 +150,16 @@ function updateThreeParams() {
 			console.log( '[AO] enabled:', threeGtaoPass.enabled, '(aoForce:', aoForce, 'aoEnabled:', aoEnabled, ')' );
 
 		}
+		// GTAO radius is in world units - Quake scale needs ~0.5-2.0
+		// scale controls AO intensity (1.0 = full strength)
+		const aoRadius = parseFloat( cg_hq_ao_radius.value ) || 0.5;
+		const aoScale = parseFloat( cg_hq_ao_intensity.value ) || 1.0;
 		threeGtaoPass.updateGtaoMaterial( {
-			radius: parseFloat( cg_hq_ao_radius.value ) || 6,
-			scale: parseFloat( cg_hq_ao_intensity.value ) || 0.3
+			radius: aoRadius,
+			scale: aoScale,
+			thickness: 1.0,
+			distanceExponent: 1.0,
+			distanceFallOff: 1.0
 		} );
 
 	}

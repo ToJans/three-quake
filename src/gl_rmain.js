@@ -225,8 +225,8 @@ export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', tru
 
 // AO (bit 1)
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true );
-export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '6', true );
-export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '0.3', true );
+export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '0.5', true );
+export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.0', true );
 
 // Bloom (bit 2)
 export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true );
