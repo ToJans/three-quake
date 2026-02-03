@@ -40,6 +40,7 @@ import {
 	SSR_SetMaxDistance, SSR_SetThickness, SSR_SetIntensity, SSR_SetDebugMode,
 	SSR_SetFloorReflectivity, SSR_SetWaterReflectivity, SSR_SetBaseReflectivity
 } from './gl_ssr.js';
+import { PostProcess_Render } from './gl_postprocess.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_lightstyle
@@ -211,43 +212,40 @@ export const gl_max_size = new cvar_t( 'gl_max_size', '1024' );
 // HQ Visual Fidelity Cvars (cg_hq_*)
 //============================================================================
 
-// Master bitmask: bit 0=SSR, bit 1=AO, bit 2=GI, bit 3=Bloom, bit 4=Shadows, bit 5=Volumetric, bit 6=Tonemapping
-export const cg_hq = new cvar_t( 'cg_hq', '74', true ); // bitmask: 1=SSR, 2=AO, 8=Bloom, 64=Tonemapping (74=no SSR)
+// Master bitmask: bit 0=SSR, bit 1=AO, bit 2=Bloom, bit 3=Tonemapping
+export const cg_hq = new cvar_t( 'cg_hq', '15', true ); // bitmask: 1=SSR, 2=AO, 4=Bloom, 8=Tonemapping (15=all on)
 
 // Individual feature toggles
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true ); // Ambient Occlusion (0=use cg_hq, 1=force on, -1=force off)
-export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '64', true ); // Quake units
-export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.5', true );
+export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '6', true ); // Quake units
+export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '0.3', true );
 export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=white, 2=AO, 3=depth, 4=normals
 
 // Bloom cvars
 export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true ); // HDR Bloom (0=use cg_hq, 1=force on, -1=force off)
-export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.1', true );
-export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '1.7', true );
-export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.5', true ); // Blur spread multiplier
+export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.15', true );
+export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '0.7', true );
+export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.3', true ); // Blur spread multiplier
 export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' ); // 0=off, 1=bloom, 2=bright pass, 3=scene
 
 // Tonemapping cvars
 export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true ); // HDR Tonemapping (0=use cg_hq, 1=force on, -1=force off)
 export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true ); // 0=ACES, 1=Reinhard, 2=Uncharted2
-export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '1.0', true );
-export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '2.2', true );
+export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '2.4', true );
+export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '2.8', true );
 export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' ); // 0=off, 1=no tonemap, 2=luminance, 3=raw HDR
 
 // SSR cvars
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // SSR (0=use cg_hq, 1=force on, -1=force off)
 export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '64', true ); // Ray march steps
-export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '2000', true ); // Max reflection distance (Quake units)
+export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true ); // Max reflection distance (Quake units)
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true ); // Depth tolerance (Quake units)
 export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true ); // Reflection strength
-export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.5', true ); // Floor reflectivity (0-1)
+export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.99', true ); // Floor reflectivity (0-1)
 export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '0.8', true ); // Water reflectivity (0-1)
-export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '0.1', true ); // Base reflectivity for all surfaces (0-1)
+export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '1.0', true ); // Base reflectivity for all surfaces (0-1)
 export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' ); // 0=off, 1=SSR only, 2=mask, 3=depth, 4=scene, 5=reflectivity
 
-// Placeholder cvars for future features (documented in visual fidelity guide)
-export const cg_hq_gi = new cvar_t( 'cg_hq_gi', '0', true ); // Global Illumination
-export const cg_hq_volumetric = new cvar_t( 'cg_hq_volumetric', '0', true ); // Volumetric Lighting
 
 //============================================================================
 // v_blend -- screen blend color for damage/powerups
@@ -925,13 +923,10 @@ export function R_PolyBlend() {
 //============================================================================
 
 // Bitmask constants for cg_hq
-const HQ_SSR = 1;        // bit 0
-const HQ_AO = 2;         // bit 1
-const HQ_GI = 4;         // bit 2
-const HQ_BLOOM = 8;      // bit 3
-const HQ_SHADOWS = 16;   // bit 4
-const HQ_VOLUMETRIC = 32; // bit 5
-const HQ_TONEMAPPING = 64; // bit 6
+const HQ_SSR = 1;          // bit 0
+const HQ_AO = 2;           // bit 1
+const HQ_BLOOM = 4;        // bit 2
+const HQ_TONEMAPPING = 8;  // bit 3
 
 let _lastAOEnabled = false;
 let _lastAORadius = - 1;
@@ -974,6 +969,16 @@ function isHQFeatureEnabled( bitmask, individualCvar ) {
 }
 
 function R_ApplyHQEffects() {
+
+	// Use Three.js built-in postprocessing (SSR, GTAO, Bloom, OutputPass)
+	// The PostProcess_Render function handles all effects via EffectComposer
+	// Returns true if postprocessing was applied, false if no effects enabled
+	PostProcess_Render();
+
+}
+
+// Legacy function kept for reference - delete after confirming new postprocessing works
+function R_ApplyHQEffects_OLD() {
 
 	// Update GTAO settings if changed
 	const aoEnabled = isHQFeatureEnabled( HQ_AO, cg_hq_ao );

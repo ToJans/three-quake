@@ -12,13 +12,10 @@ All visual fidelity features can be toggled individually via console variables u
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `cg_hq` | `0` | Master toggle (bitmask) for all HQ features |
+| `cg_hq` | `15` | Master toggle (bitmask) for all HQ features |
 | `cg_hq_ssr` | `0` | Screen Space Reflections |
 | `cg_hq_ao` | `0` | Ambient Occlusion (GTAO) |
-| `cg_hq_gi` | `0` | Global Illumination (surfel-based) |
 | `cg_hq_bloom` | `0` | HDR Bloom |
-| `cg_hq_shadows` | `0` | Soft Shadows (PCSS) |
-| `cg_hq_volumetric` | `0` | Volumetric Lighting |
 | `cg_hq_tonemapping` | `0` | HDR Tonemapping |
 
 ### Master Bitmask (`cg_hq`)
@@ -26,18 +23,16 @@ All visual fidelity features can be toggled individually via console variables u
 For convenience, `cg_hq` accepts a bitmask to enable multiple features at once:
 
 ```
-Bit 0 (1)   = SSR
-Bit 1 (2)   = AO
-Bit 2 (4)   = GI
-Bit 3 (8)   = Bloom
-Bit 4 (16)  = Soft Shadows
-Bit 5 (32)  = Volumetric
-Bit 6 (64)  = Tonemapping
+Bit 0 (1) = SSR
+Bit 1 (2) = AO
+Bit 2 (4) = Bloom
+Bit 3 (8) = Tonemapping
 ```
 
 **Examples:**
-- `cg_hq 127` - Enable all features
-- `cg_hq 11` - Enable SSR + AO + Bloom (1+2+8)
+- `cg_hq 15` - Enable all features (default)
+- `cg_hq 14` - Enable AO + Bloom + Tonemapping (no SSR)
+- `cg_hq 7` - Enable SSR + AO + Bloom (1+2+4)
 - `cg_hq 3` - Enable SSR + AO only (1+2)
 
 Individual `cg_hq_xxx` variables override the bitmask when explicitly set.
@@ -385,23 +380,17 @@ For dramatically improved texture quality, AI upscaling can transform original 6
 
 ### "Fast" (60 FPS on integrated graphics)
 ```
-cg_hq 10  // AO + Bloom only
+cg_hq 6  // AO + Bloom only (2+4)
 ```
 
 ### "Balanced" (60 FPS on mid-range GPU)
 ```
-cg_hq 75  // SSR + AO + Bloom + Volumetric + Tonemapping
+cg_hq 14  // AO + Bloom + Tonemapping (2+4+8)
 ```
 
 ### "Quality" (30-60 FPS on high-end GPU)
 ```
-cg_hq 127  // All features enabled
-```
-
-### "Ultra" (Variable FPS, enthusiast)
-```
-cg_hq 127
-// Plus higher resolution settings for each feature
+cg_hq 15  // All features enabled (1+2+4+8)
 ```
 
 ---
@@ -439,8 +428,11 @@ For best visual improvement with minimal performance cost:
 2. ✅ **Bloom** - Makes lights pop, very cheap - `cg_hq_bloom 1`
 3. ✅ **Tonemapping** - Better colors, almost free - `cg_hq_tonemapping 1`
 4. ✅ **SSR** - Impressive on floors/water - `cg_hq_ssr 1`
-5. **Volumetric** - Atmospheric but expensive
-6. **GI** - Most complex, save for last
+
+Future features (not yet implemented):
+- **Volumetric** - Atmospheric but expensive
+- **Soft Shadows** - Contact-hardening PCSS
+- **GI** - Most complex, save for last
 
 ---
 
@@ -506,13 +498,10 @@ This includes:
 The `cg_hq` cvar uses a bitmask for bulk enabling:
 
 ```
-Bit 0 (1)   = SSR
-Bit 1 (2)   = AO
-Bit 2 (4)   = GI
-Bit 3 (8)   = Bloom
-Bit 4 (16)  = Soft Shadows
-Bit 5 (32)  = Volumetric
-Bit 6 (64)  = Tonemapping
+Bit 0 (1) = SSR
+Bit 1 (2) = AO
+Bit 2 (4) = Bloom
+Bit 3 (8) = Tonemapping
 ```
 
 ### Console Commands
@@ -555,7 +544,7 @@ cg_hq_tonemapping_debug 0         # Debug off (normal rendering)
 **Master Bitmask:**
 ```
 cg_hq 2                # Enable AO via bitmask
-cg_hq 8                # Enable Bloom via bitmask
-cg_hq 10               # Enable AO + Bloom (2+8)
-cg_hq 127              # Enable all features
+cg_hq 4                # Enable Bloom via bitmask
+cg_hq 6                # Enable AO + Bloom (2+4)
+cg_hq 15               # Enable all features (1+2+4+8)
 ```
