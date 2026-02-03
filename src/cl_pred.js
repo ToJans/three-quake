@@ -131,6 +131,7 @@ export const cl_simorg = new Float32Array( 3 ); // Simulated/predicted origin
 export const cl_simvel = new Float32Array( 3 ); // Simulated/predicted velocity
 export const cl_simangles = new Float32Array( 3 ); // Simulated angles
 export let cl_simonground = -1; // Predicted onground state: -1 = in air, >= 0 = on ground
+export function set_cl_simonground( v ) { cl_simonground = v; }
 
 // Estimated latency for timing
 let cls_latency = 0;

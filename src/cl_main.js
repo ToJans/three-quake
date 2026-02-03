@@ -35,7 +35,7 @@ import { key_menu, set_key_dest } from './keys.js';
 import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
 	CL_GetPredictedPlayer, CL_SetUpPlayerPrediction,
 	CL_GetServerSequence, CL_GetValidSequence, CL_GetEntityFrame,
-	cl_simorg, cl_simvel, cl_simangles, cl_nopred } from './cl_pred.js';
+	cl_simorg, cl_simvel, cl_simangles, cl_nopred, set_cl_simonground } from './cl_pred.js';
 
 // Re-export prediction state for view.js to use
 export { cl_simorg, cl_simvel, cl_simangles, cl_nopred };
@@ -1031,6 +1031,13 @@ export function CL_ReadFromServer() {
 	if ( ! sv.active && ! cls.demoplayback ) {
 
 		CL_PredictMove();
+
+	} else {
+
+		// When prediction is not running, copy NQ velocity to cl_simvel
+		// so V_CalcBob and V_CalcRoll still work for weapon view bobbing
+		VectorCopy( cl.velocity, cl_simvel );
+		set_cl_simonground( cl.onground ? 0 : - 1 );
 
 	}
 
