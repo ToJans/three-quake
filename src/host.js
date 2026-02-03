@@ -104,6 +104,8 @@ const temp1 = new cvar_t( 'temp1', '0' );
 export function set_host_frametime( v ) { host_frametime = v; }
 // set_host_client is imported and re-exported from server.js
 export { set_host_client } from './server.js';
+// sv is the server state, re-exported for client-side prediction
+export { sv } from './server.js';
 
 /*
 ====================

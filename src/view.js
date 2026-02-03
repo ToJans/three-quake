@@ -8,7 +8,7 @@ import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_Set } from './cvar.js';
 import { VectorCopy, VectorAdd, VectorSubtract, VectorNormalize,
 	DotProduct, AngleVectors, anglemod, M_PI } from './mathlib.js';
-import { host_frametime, noclip_anglehack } from './host.js';
+import { host_frametime, noclip_anglehack, sv } from './host.js';
 import { r_refdef } from './render.js';
 import {
 	CSHIFT_CONTENTS, CSHIFT_DAMAGE, CSHIFT_BONUS, CSHIFT_POWERUP,
@@ -20,6 +20,7 @@ import { R_RenderView } from './gl_rmain.js';
 import { R_PushDlights } from './gl_rlight.js';
 import { con_forcedup } from './console.js';
 import { VID_UpdateGamma } from './vid.js';
+import { cl_simorg, cl_nopred } from './cl_pred.js';
 
 /*
 
@@ -656,25 +657,23 @@ function CalcGunAngle() {
 V_BoundOffsets
 ==============
 */
-function V_BoundOffsets() {
-
-	const ent = cl_entities[ cl.viewentity ];
+function V_BoundOffsets( playerorg ) {
 
 	// absolutely bound refresh reletive to entity clipping hull
 	// so the view can never be inside a solid wall
 
-	if ( r_refdef.vieworg[ 0 ] < ent.origin[ 0 ] - 14 )
-		r_refdef.vieworg[ 0 ] = ent.origin[ 0 ] - 14;
-	else if ( r_refdef.vieworg[ 0 ] > ent.origin[ 0 ] + 14 )
-		r_refdef.vieworg[ 0 ] = ent.origin[ 0 ] + 14;
-	if ( r_refdef.vieworg[ 1 ] < ent.origin[ 1 ] - 14 )
-		r_refdef.vieworg[ 1 ] = ent.origin[ 1 ] - 14;
-	else if ( r_refdef.vieworg[ 1 ] > ent.origin[ 1 ] + 14 )
-		r_refdef.vieworg[ 1 ] = ent.origin[ 1 ] + 14;
-	if ( r_refdef.vieworg[ 2 ] < ent.origin[ 2 ] - 22 )
-		r_refdef.vieworg[ 2 ] = ent.origin[ 2 ] - 22;
-	else if ( r_refdef.vieworg[ 2 ] > ent.origin[ 2 ] + 30 )
-		r_refdef.vieworg[ 2 ] = ent.origin[ 2 ] + 30;
+	if ( r_refdef.vieworg[ 0 ] < playerorg[ 0 ] - 14 )
+		r_refdef.vieworg[ 0 ] = playerorg[ 0 ] - 14;
+	else if ( r_refdef.vieworg[ 0 ] > playerorg[ 0 ] + 14 )
+		r_refdef.vieworg[ 0 ] = playerorg[ 0 ] + 14;
+	if ( r_refdef.vieworg[ 1 ] < playerorg[ 1 ] - 14 )
+		r_refdef.vieworg[ 1 ] = playerorg[ 1 ] - 14;
+	else if ( r_refdef.vieworg[ 1 ] > playerorg[ 1 ] + 14 )
+		r_refdef.vieworg[ 1 ] = playerorg[ 1 ] + 14;
+	if ( r_refdef.vieworg[ 2 ] < playerorg[ 2 ] - 22 )
+		r_refdef.vieworg[ 2 ] = playerorg[ 2 ] - 22;
+	else if ( r_refdef.vieworg[ 2 ] > playerorg[ 2 ] + 30 )
+		r_refdef.vieworg[ 2 ] = playerorg[ 2 ] + 30;
 
 }
 
@@ -764,6 +763,13 @@ export function V_CalcRefdef() {
 	// view is the weapon model (only visible from inside body)
 	const view = cl.viewent;
 
+	// Use predicted position for local player when running remotely (QuakeWorld-style prediction)
+	// Use server-interpolated position when running locally, during demos, or if prediction is disabled
+	// Also fall back to ent.origin if prediction hasn't been initialized (cl_simorg is zero)
+	const usePrediction = ( ! sv.active ) && ( ! cls.demoplayback ) && ( cl_nopred.value === 0 );
+	const predictionInitialized = cl_simorg[ 0 ] !== 0 || cl_simorg[ 1 ] !== 0 || cl_simorg[ 2 ] !== 0;
+	const playerorg = ( usePrediction && predictionInitialized ) ? cl_simorg : ent.origin;
+
 	// transform the view offset by the model's matrix to get the offset from
 	// model origin for the view
 	ent.angles[ YAW ] = cl.viewangles[ YAW ]; // the model should face the view dir
@@ -772,7 +778,7 @@ export function V_CalcRefdef() {
 	const bob = V_CalcBob();
 
 	// refresh position
-	VectorCopy( ent.origin, r_refdef.vieworg );
+	VectorCopy( playerorg, r_refdef.vieworg );
 	r_refdef.vieworg[ 2 ] += cl.viewheight + bob;
 
 	// never let it sit exactly on a node line, because a water plane can
@@ -802,14 +808,14 @@ export function V_CalcRefdef() {
 			+ scr_ofsy.value * right[ i ]
 			+ scr_ofsz.value * up[ i ];
 
-	V_BoundOffsets();
+	V_BoundOffsets( playerorg );
 
 	// set up gun position
 	VectorCopy( cl.viewangles, view.angles );
 
 	CalcGunAngle();
 
-	VectorCopy( ent.origin, view.origin );
+	VectorCopy( playerorg, view.origin );
 	view.origin[ 2 ] += cl.viewheight;
 
 	for ( let i = 0; i < 3; i ++ ) {
@@ -839,22 +845,22 @@ export function V_CalcRefdef() {
 	VectorAdd( r_refdef.viewangles, cl.punchangle, r_refdef.viewangles );
 
 	// smooth out stair step ups
-	if ( cl.onground && ent.origin[ 2 ] - _oldz > 0 ) {
+	if ( cl.onground && playerorg[ 2 ] - _oldz > 0 ) {
 
 		let steptime = cl.time - cl.oldtime;
 		if ( steptime < 0 )
 			steptime = 0;
 
 		_oldz += steptime * 80;
-		if ( _oldz > ent.origin[ 2 ] )
-			_oldz = ent.origin[ 2 ];
-		if ( ent.origin[ 2 ] - _oldz > 12 )
-			_oldz = ent.origin[ 2 ] - 12;
-		r_refdef.vieworg[ 2 ] += _oldz - ent.origin[ 2 ];
-		view.origin[ 2 ] += _oldz - ent.origin[ 2 ];
+		if ( _oldz > playerorg[ 2 ] )
+			_oldz = playerorg[ 2 ];
+		if ( playerorg[ 2 ] - _oldz > 12 )
+			_oldz = playerorg[ 2 ] - 12;
+		r_refdef.vieworg[ 2 ] += _oldz - playerorg[ 2 ];
+		view.origin[ 2 ] += _oldz - playerorg[ 2 ];
 
 	} else
-		_oldz = ent.origin[ 2 ];
+		_oldz = playerorg[ 2 ];
 
 	// if ( chase_active.value )
 	//     Chase_Update();

@@ -10,11 +10,12 @@ import { clc_move } from './protocol.js';
 import { SIGNONS,
 	kbutton_t, usercmd_t,
 	cl, cls, cl_entities } from './client.js';
-import { anglemod } from './mathlib.js';
-import { host_frametime } from './host.js';
+import { anglemod, VectorCopy } from './mathlib.js';
+import { host_frametime, realtime } from './host.js';
 import { V_StartPitchDrift, V_StopPitchDrift } from './view.js';
 import { lookspring, CL_Disconnect } from './cl_main.js';
 import { NET_SendUnreliableMessage } from './net_main.js';
+import { CL_StoreCommand } from './cl_pred.js';
 
 /*
 ===============================================================================
@@ -376,6 +377,21 @@ export function CL_SendMove( cmd ) {
 
 	MSG_WriteByte( buf, in_impulse );
 	in_impulse = 0;
+
+	//
+	// Store command for client-side prediction (QuakeWorld style)
+	// Build a prediction command structure
+	//
+	const predCmd = {
+		msec: Math.min( 255, Math.floor( host_frametime * 1000 ) ),
+		angles: new Float32Array( 3 ),
+		forwardmove: cmd.forwardmove,
+		sidemove: cmd.sidemove,
+		upmove: cmd.upmove,
+		buttons: bits
+	};
+	VectorCopy( cl.viewangles, predCmd.angles );
+	CL_StoreCommand( predCmd, realtime );
 
 	//
 	// deliver the message

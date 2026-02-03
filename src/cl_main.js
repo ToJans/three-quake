@@ -27,11 +27,16 @@ import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 import { anglemod, VectorCopy, VectorSubtract, VectorMA, AngleVectors, DotProduct } from './mathlib.js';
 import { R_RocketTrail, R_RemoveEfrags } from './render.js';
 import { CL_InitTEnts, CL_UpdateTEnts } from './cl_tent.js';
-import { host_frametime, realtime, host_framecount, Host_Error, Host_EndGame } from './host.js';
+import { host_frametime, realtime, host_framecount, Host_Error, Host_EndGame, sv } from './host.js';
 import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
+import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
+	cl_simorg, cl_simvel, cl_simangles, cl_nopred } from './cl_pred.js';
+
+// Re-export prediction state for view.js to use
+export { cl_simorg, cl_simvel, cl_simangles, cl_nopred };
 
 // we need to declare some mouse variables here, because the menu system
 // references them even when on a unix system.
@@ -62,6 +67,9 @@ export function CL_ClearState() {
 
 	// if (!sv.active)
 	//     Host_ClearMemory();
+
+	// Reset client-side prediction state
+	CL_ResetPrediction();
 
 	// wipe the entire cl structure
 	// In JS we reset the fields instead of memset
@@ -802,6 +810,14 @@ export function CL_ReadFromServer() {
 	CL_RelinkEntities();
 	CL_UpdateTEnts();
 
+	// Client-side prediction (QuakeWorld style)
+	// Predicts local player position for responsive movement with low server tick rates
+	if ( ! sv.active ) {
+
+		CL_PredictMove();
+
+	}
+
 	return 0;
 
 }
@@ -866,6 +882,7 @@ export function CL_Init() {
 
 	CL_InitInput();
 	CL_InitTEnts();
+	CL_InitPrediction();
 
 	//
 	// register our commands

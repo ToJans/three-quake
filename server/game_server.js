@@ -56,7 +56,7 @@ const CONFIG = {
 	port: 4433,
 	certFile: '/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem',
 	keyFile: '/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem',
-	tickRate: 72,
+	tickRate: 60,  // 60Hz - balance between CPU usage and responsiveness (original used 20Hz + client interpolation)
 	maxClients: 16,
 	defaultMap: 'start',
 	roomId: null,        // Room ID if spawned by lobby server
