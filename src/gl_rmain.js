@@ -502,40 +502,6 @@ export function R_Clear() {
 // R_DrawEntitiesOnList
 //============================================================================
 
-/*
-=================
-R_EntityInPVS
-
-Returns true if the entity is in a visible leaf (PVS check).
-Always returns true if r_novis is set.
-
-NOTE: This checks only the entity's origin point, not its bounding box.
-- OK for alias models (monsters, items) - they're relatively small and centered
-- OK for sprites - they're point-like
-- NOT OK for brush models (doors, platforms) - they span multiple leaves,
-  so brush models skip PVS culling and rely on frustum culling instead
-=================
-*/
-function R_EntityInPVS( ent ) {
-
-	// If r_novis is set, draw everything
-	if ( r_novis.value )
-		return true;
-
-	// Need worldmodel to check PVS
-	if ( ! cl.worldmodel )
-		return true;
-
-	// Find which leaf the entity is in
-	const leaf = Mod_PointInLeaf( ent.origin, cl.worldmodel );
-	if ( ! leaf )
-		return true; // Can't determine, draw it
-
-	// Check if this leaf was marked visible by R_MarkLeaves
-	return leaf.visframe === r_visframecount;
-
-}
-
 export function R_DrawEntitiesOnList() {
 
 	if ( ! r_drawentities.value )
@@ -552,15 +518,10 @@ export function R_DrawEntitiesOnList() {
 		switch ( currententity.model.type ) {
 
 			case mod_alias:
-				// PVS culling for alias models (monsters, items, torches)
-				if ( ! R_EntityInPVS( currententity ) )
-					continue;
 				R_DrawAliasModel( currententity );
 				break;
 
 			case mod_brush:
-				// Skip PVS culling for brush entities (doors, platforms) - they can
-				// span multiple leaves and have their own frustum culling in R_DrawBrushModel
 				R_DrawBrushModel( currententity );
 				break;
 
@@ -577,10 +538,6 @@ export function R_DrawEntitiesOnList() {
 		currententity = cl_visedicts[ i ];
 
 		if ( ! currententity || ! currententity.model )
-			continue;
-
-		// PVS culling for sprites too
-		if ( ! R_EntityInPVS( currententity ) )
 			continue;
 
 		switch ( currententity.model.type ) {
@@ -677,6 +634,9 @@ export function R_DrawViewModel() {
 let _entityMeshesInScene = new Set();
 let _entityMeshesThisFrame = new Set();
 
+// Pre-allocated vector for dynamic light distance calculation (avoid per-frame allocation)
+const _dlightDist = [ 0, 0, 0 ];
+
 function R_DrawAliasModel( e ) {
 
 	if ( ! e || ! e.model ) return;
@@ -698,8 +658,24 @@ function R_DrawAliasModel( e ) {
 		if ( e === cl.viewent && ambientlight < 24 )
 			ambientlight = shadelight = 24;
 
-		// Dynamic lights are handled by Three.js PointLights now,
-		// so we don't add them to vertex colors here
+		// add dynamic lights to ambient/shade (gl_rmain.c:482-497)
+		for ( let lnum = 0; lnum < MAX_DLIGHTS; lnum ++ ) {
+
+			if ( cl_dlights[ lnum ].die >= cl.time ) {
+
+				VectorSubtract( e.origin, cl_dlights[ lnum ].origin, _dlightDist );
+				const add = cl_dlights[ lnum ].radius - Length( _dlightDist );
+
+				if ( add > 0 ) {
+
+					ambientlight += add;
+					shadelight += add;
+
+				}
+
+			}
+
+		}
 
 		// clamp lighting so it doesn't overbright as much
 		if ( ambientlight > 128 )

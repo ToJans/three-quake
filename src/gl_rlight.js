@@ -374,7 +374,7 @@ export function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 	}
 
 	// go down back side
-	return RecursiveLightPoint( node.children[ side ? 0 : 1 ], mid, end, surfaces );
+	return RecursiveLightPoint( node.children[ side ? 0 : 1 ], mid, end, surfaces, depth + 1 );
 
 }
 

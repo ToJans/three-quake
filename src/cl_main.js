@@ -712,7 +712,7 @@ function CL_LinkPacketEntities() {
 		VectorCopy( ent.origin, _peOldorg );
 
 		// rotate binary objects locally
-		if ( model != null && ( model.flags & 0x0004 ) ) { // EF_ROTATE
+		if ( model != null && ( model.flags & 0x0008 ) ) { // EF_ROTATE
 
 			ent.angles[ 0 ] = 0;
 			ent.angles[ 1 ] = autorotate;
@@ -943,7 +943,7 @@ export function CL_RelinkEntities() {
 		}
 
 		// rotate binary objects locally
-		if ( ent.model != null && ( ent.model.flags & 0x0004 ) ) // EF_ROTATE
+		if ( ent.model != null && ( ent.model.flags & 0x0008 ) ) // EF_ROTATE
 			ent.angles[ 1 ] = bobjrotate;
 
 		if ( ent.effects & 0x0001 ) // EF_BRIGHTFIELD

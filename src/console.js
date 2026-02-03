@@ -4,7 +4,7 @@ import { Cmd_AddCommand } from './cmd.js';
 import { Cvar_RegisterVariable } from './cvar.js';
 import { key_dest, set_key_dest, key_game, key_console, key_message,
 	key_lines, edit_line, key_linepos, chat_buffer } from './keys.js';
-import { Draw_GetUIScale } from './gl_draw.js';
+import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 
 /*
 ==============================================================================
@@ -55,20 +55,8 @@ export let con_notifylines = 0; // scan lines to clear for notify lines
 let _cls = { state: 0, signon: 0 };
 let _realVid = { width: 640, height: 480 };
 const _vid = {
-	get width() {
-
-		const dpr = window.devicePixelRatio || 1;
-		const uiScale = Draw_GetUIScale();
-		return Math.floor( _realVid.width / ( dpr * uiScale ) );
-
-	},
-	get height() {
-
-		const dpr = window.devicePixelRatio || 1;
-		const uiScale = Draw_GetUIScale();
-		return Math.floor( _realVid.height / ( dpr * uiScale ) );
-
-	}
+	get width() { return Draw_GetVirtualWidth(); },
+	get height() { return Draw_GetVirtualHeight(); }
 };
 let _getRealtime = () => 0;
 let _scr_disabled_for_loading = false;
