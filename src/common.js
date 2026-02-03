@@ -386,6 +386,13 @@ export function MSG_WriteAngle( sb, f ) {
 
 }
 
+// QuakeWorld-style 16-bit angle (more precision)
+export function MSG_WriteAngle16( sb, f ) {
+
+	MSG_WriteShort( sb, ( ( f | 0 ) * 65536 / 360 ) & 65535 );
+
+}
+
 // reading functions
 
 export let msg_readcount = 0;
@@ -529,6 +536,13 @@ export function MSG_ReadCoord() {
 export function MSG_ReadAngle() {
 
 	return MSG_ReadChar() * ( 360.0 / 256 );
+
+}
+
+// QuakeWorld-style 16-bit angle (more precision)
+export function MSG_ReadAngle16() {
+
+	return MSG_ReadShort() * ( 360.0 / 65536 );
 
 }
 

@@ -5,6 +5,7 @@ import {
 	Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write, SZ_Alloc,
 	MSG_WriteByte, MSG_WriteChar, MSG_WriteShort, MSG_WriteLong,
 	MSG_WriteFloat, MSG_WriteString, MSG_WriteCoord, MSG_WriteAngle,
+	MSG_WriteAngle16,
 	standard_quake
 } from './common.js';
 import { Cmd_AddCommand, Cmd_ExecuteString, Cbuf_AddText, Cbuf_InsertText, src_command } from './cmd.js';
@@ -26,7 +27,10 @@ import {
 	U_NOLERP, U_FRAME, U_SIGNAL, U_MODEL, U_COLORMAP, U_SKIN, U_EFFECTS, U_LONGENTITY,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
 	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME, SU_ARMOR, SU_WEAPON,
-	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle
+	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
+	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB,
+	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE
 } from './protocol.js';
 import {
 	sv, svs, ss_loading, ss_active,
@@ -872,6 +876,217 @@ export function SV_WriteClientdataToMessage( ent, msg ) {
 }
 
 /*
+==================
+MSG_WriteDeltaUsercmd
+
+QuakeWorld-style delta compression for usercmd_t
+==================
+*/
+function MSG_WriteDeltaUsercmd( buf, from, cmd ) {
+
+	let bits = 0;
+
+	if ( cmd.angles[ 0 ] !== from.angles[ 0 ] )
+		bits |= CM_ANGLE1;
+	if ( cmd.angles[ 1 ] !== from.angles[ 1 ] )
+		bits |= CM_ANGLE2;
+	if ( cmd.angles[ 2 ] !== from.angles[ 2 ] )
+		bits |= CM_ANGLE3;
+	if ( cmd.forwardmove !== from.forwardmove )
+		bits |= CM_FORWARD;
+	if ( cmd.sidemove !== from.sidemove )
+		bits |= CM_SIDE;
+	if ( cmd.upmove !== from.upmove )
+		bits |= CM_UP;
+	if ( cmd.buttons !== from.buttons )
+		bits |= CM_BUTTONS;
+	if ( cmd.impulse !== from.impulse )
+		bits |= CM_IMPULSE;
+
+	MSG_WriteByte( buf, bits );
+
+	if ( bits & CM_ANGLE1 )
+		MSG_WriteAngle16( buf, cmd.angles[ 0 ] );
+	if ( bits & CM_ANGLE2 )
+		MSG_WriteAngle16( buf, cmd.angles[ 1 ] );
+	if ( bits & CM_ANGLE3 )
+		MSG_WriteAngle16( buf, cmd.angles[ 2 ] );
+	if ( bits & CM_FORWARD )
+		MSG_WriteShort( buf, cmd.forwardmove );
+	if ( bits & CM_SIDE )
+		MSG_WriteShort( buf, cmd.sidemove );
+	if ( bits & CM_UP )
+		MSG_WriteShort( buf, cmd.upmove );
+	if ( bits & CM_BUTTONS )
+		MSG_WriteByte( buf, cmd.buttons );
+	if ( bits & CM_IMPULSE )
+		MSG_WriteByte( buf, cmd.impulse );
+
+}
+
+// null command for delta compression baseline
+const nullcmd = {
+	msec: 0,
+	angles: new Float32Array( 3 ),
+	forwardmove: 0,
+	sidemove: 0,
+	upmove: 0,
+	buttons: 0,
+	impulse: 0
+};
+
+// Player model index for checking if model changed
+let sv_playermodel = 0;
+
+/*
+==================
+SV_WritePlayersToClient
+
+QuakeWorld-style player info for client-side prediction
+==================
+*/
+function SV_WritePlayersToClient( client, clent, pvs, msg ) {
+
+	// Find player model index if not cached
+	if ( sv_playermodel === 0 ) {
+
+		sv_playermodel = SV_ModelIndex( 'progs/player.mdl' );
+
+	}
+
+	for ( let j = 0; j < svs.maxclients; j ++ ) {
+
+		const cl = svs.clients[ j ];
+		if ( ! cl.active || ! cl.spawned )
+			continue;
+
+		const ent = cl.edict;
+		if ( ent == null || ent.v == null )
+			continue;
+
+		// Visibility check (skip for self and spectators)
+		if ( ent !== clent ) {
+
+			// Check PVS - skip if not visible
+			let i;
+			for ( i = 0; i < ent.num_leafs; i ++ ) {
+
+				const leafnum = ent.leafnums[ i ];
+				if ( pvs[ leafnum >> 3 ] & ( 1 << ( leafnum & 7 ) ) )
+					break;
+
+			}
+
+			if ( i === ent.num_leafs )
+				continue; // not visible
+
+		}
+
+		let pflags = PF_MSEC | PF_COMMAND;
+
+		if ( ent.v.modelindex !== sv_playermodel )
+			pflags |= PF_MODEL;
+		for ( let i = 0; i < 3; i ++ ) {
+
+			if ( ent.v.velocity[ i ] !== 0 )
+				pflags |= ( PF_VELOCITY1 << i );
+
+		}
+
+		if ( ent.v.effects !== 0 )
+			pflags |= PF_EFFECTS;
+		if ( ent.v.skin !== 0 )
+			pflags |= PF_SKINNUM;
+		if ( ent.v.health <= 0 )
+			pflags |= PF_DEAD;
+		if ( ent.v.mins[ 2 ] !== - 24 )
+			pflags |= PF_GIB;
+
+		// For self, don't send msec/command (already known), but send weaponframe
+		if ( ent === clent ) {
+
+			pflags &= ~( PF_MSEC | PF_COMMAND );
+			if ( ent.v.weaponframe !== 0 )
+				pflags |= PF_WEAPONFRAME;
+
+		}
+
+		MSG_WriteByte( msg, svc_playerinfo );
+		MSG_WriteByte( msg, j );
+		MSG_WriteShort( msg, pflags );
+
+		for ( let i = 0; i < 3; i ++ )
+			MSG_WriteCoord( msg, ent.v.origin[ i ] );
+
+		MSG_WriteByte( msg, ent.v.frame );
+
+		if ( pflags & PF_MSEC ) {
+
+			let msec = ( 1000 * ( sv.time - ( cl.localtime || 0 ) ) ) | 0;
+			if ( msec > 255 )
+				msec = 255;
+			if ( msec < 0 )
+				msec = 0;
+			MSG_WriteByte( msg, msec );
+
+		}
+
+		if ( pflags & PF_COMMAND ) {
+
+			// Get the client's last command
+			const cmd = {
+				msec: 0,
+				angles: new Float32Array( 3 ),
+				forwardmove: cl.lastcmd ? cl.lastcmd.forwardmove : 0,
+				sidemove: cl.lastcmd ? cl.lastcmd.sidemove : 0,
+				upmove: cl.lastcmd ? cl.lastcmd.upmove : 0,
+				buttons: 0, // never send buttons
+				impulse: 0 // never send impulse
+			};
+
+			// Copy angles from edict if dead (don't show corpse looking around)
+			if ( ent.v.health <= 0 ) {
+
+				cmd.angles[ 0 ] = 0;
+				cmd.angles[ 1 ] = ent.v.angles[ 1 ];
+				cmd.angles[ 2 ] = 0;
+
+			} else if ( cl.lastcmd ) {
+
+				cmd.angles[ 0 ] = cl.lastcmd.angles ? cl.lastcmd.angles[ 0 ] : 0;
+				cmd.angles[ 1 ] = cl.lastcmd.angles ? cl.lastcmd.angles[ 1 ] : 0;
+				cmd.angles[ 2 ] = cl.lastcmd.angles ? cl.lastcmd.angles[ 2 ] : 0;
+
+			}
+
+			MSG_WriteDeltaUsercmd( msg, nullcmd, cmd );
+
+		}
+
+		for ( let i = 0; i < 3; i ++ ) {
+
+			if ( pflags & ( PF_VELOCITY1 << i ) )
+				MSG_WriteShort( msg, ent.v.velocity[ i ] );
+
+		}
+
+		if ( pflags & PF_MODEL )
+			MSG_WriteByte( msg, ent.v.modelindex );
+
+		if ( pflags & PF_SKINNUM )
+			MSG_WriteByte( msg, ent.v.skin );
+
+		if ( pflags & PF_EFFECTS )
+			MSG_WriteByte( msg, ent.v.effects );
+
+		if ( pflags & PF_WEAPONFRAME )
+			MSG_WriteByte( msg, ent.v.weaponframe );
+
+	}
+
+}
+
+/*
 =======================
 SV_SendClientDatagram
 =======================
@@ -885,6 +1100,13 @@ function SV_SendClientDatagram( client ) {
 	MSG_WriteFloat( msg, sv.time );
 
 	SV_WriteClientdataToMessage( client.edict, msg );
+
+	// Send player info for other players (QuakeWorld-style prediction)
+	const org = new Float32Array( 3 );
+	VectorAdd( client.edict.v.origin, client.edict.v.view_ofs, org );
+	const pvs = SV_FatPVS( org );
+	SV_WritePlayersToClient( client, client.edict, pvs, msg );
+
 	SV_WriteEntitiesToClient( client.edict, msg );
 
 	// copy the server datagram if there is space

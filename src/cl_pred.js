@@ -16,6 +16,10 @@ export const cl_pushlatency = new cvar_t( 'pushlatency', '-999' );
 export const cl_solid_players = new cvar_t( 'cl_solid_players', '1' );
 export const cl_predict_players = new cvar_t( 'cl_predict_players', '1' );
 
+// Player flags from QuakeWorld protocol
+export const PF_DEAD = ( 1 << 9 ); // Don't block movement any more
+export const PF_GIB = ( 1 << 10 ); // Offset the view height differently
+
 // Predicted player structure (for other players)
 class predicted_player_t {
 	constructor() {
@@ -25,6 +29,22 @@ class predicted_player_t {
 		this.angles = new Float32Array( 3 );
 		this.modelindex = 0;
 		this.msgtime = 0; // Last update time
+		this.frame = 0;
+		this.flags = 0; // PF_DEAD, PF_GIB, etc.
+		this.skin = 0;
+		this.effects = 0;
+		this.weaponframe = 0;
+		this.msec = 0; // Time since last server frame
+		// Movement command for physics prediction
+		this.cmd = {
+			msec: 0,
+			angles: new Float32Array( 3 ),
+			forwardmove: 0,
+			sidemove: 0,
+			upmove: 0,
+			buttons: 0,
+			impulse: 0
+		};
 	}
 }
 
@@ -398,6 +418,10 @@ function CL_SetSolidPlayers( playernum ) {
 		if ( j === playernum )
 			continue;
 
+		// Skip dead players - they don't block movement (PF_DEAD flag)
+		if ( ( pplayer.flags & PF_DEAD ) !== 0 )
+			continue;
+
 		// Add as a solid physics entity using predicted position
 		const pent = pmove.physents[ pmove.numphysent ];
 		pent.model = null; // Use box collision, not BSP
@@ -431,6 +455,43 @@ export function CL_GetPredictedPlayer( playernum ) {
 		return null;
 
 	return pplayer;
+}
+
+/*
+=================
+CL_SetPlayerInfo
+
+Called from CL_ParsePlayerInfo to set player state from server.
+This stores the QuakeWorld-style player info for prediction.
+=================
+*/
+export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd ) {
+	if ( playernum < 0 || playernum >= MAX_CLIENTS )
+		return;
+
+	const pplayer = predicted_players[ playernum ];
+	pplayer.active = true;
+	pplayer.msgtime = realtime;
+
+	VectorCopy( origin, pplayer.origin );
+	VectorCopy( velocity, pplayer.velocity );
+	pplayer.frame = frame;
+	pplayer.flags = flags;
+	pplayer.skin = skin;
+	pplayer.effects = effects;
+	pplayer.weaponframe = weaponframe;
+	pplayer.msec = msec;
+
+	// Copy movement command if provided
+	if ( cmd != null ) {
+		pplayer.cmd.msec = cmd.msec;
+		VectorCopy( cmd.angles, pplayer.cmd.angles );
+		pplayer.cmd.forwardmove = cmd.forwardmove;
+		pplayer.cmd.sidemove = cmd.sidemove;
+		pplayer.cmd.upmove = cmd.upmove;
+		pplayer.cmd.buttons = cmd.buttons;
+		pplayer.cmd.impulse = cmd.impulse;
+	}
 }
 
 /*

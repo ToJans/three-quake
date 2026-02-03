@@ -9,6 +9,7 @@ import { PITCH, YAW, ROLL } from './quakedef.js';
 import { Con_Printf, Con_DPrintf, SZ_Clear,
 	MSG_BeginReading, MSG_ReadByte, MSG_ReadChar, MSG_ReadShort, MSG_ReadLong,
 	MSG_ReadFloat, MSG_ReadString, MSG_ReadCoord, MSG_ReadAngle,
+	MSG_ReadAngle16,
 	MSG_WriteByte,
 	msg_readcount, msg_badread,
 	net_message, standard_quake } from './common.js';
@@ -28,6 +29,9 @@ import {
 	svc_killedmonster, svc_foundsecret, svc_spawnstaticsound,
 	svc_intermission, svc_finale, svc_cdtrack, svc_sellscreen,
 	svc_cutscene,
+	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB,
+	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	clc_nop,
 	SND_VOLUME, SND_ATTENUATION,
 	DEFAULT_VIEWHEIGHT,
@@ -49,7 +53,7 @@ import { VectorCopy } from './mathlib.js';
 import { V_ParseDamage } from './view.js';
 import { Mod_ForName } from './gl_model.js';
 import { CL_SetServerState, CL_AcknowledgeCommand,
-	CL_FindAcknowledgedSequence, CL_SetValidSequence } from './cl_pred.js';
+	CL_FindAcknowledgedSequence, CL_SetValidSequence, CL_SetPlayerInfo } from './cl_pred.js';
 import { R_TranslatePlayerSkin } from './gl_rmisc.js';
 import { R_NewMap } from './gl_rmisc.js';
 import { R_ParseParticleEffect, R_AddEfrags } from './render.js';
@@ -689,6 +693,100 @@ export function CL_ParseClientdata( bits ) {
 }
 
 /*
+==================
+CL_ParsePlayerInfo
+
+QuakeWorld-style player info for client-side prediction.
+Parses svc_playerinfo message containing player state for other players.
+==================
+*/
+function CL_ParsePlayerInfo() {
+
+	const playernum = MSG_ReadByte();
+	const flags = MSG_ReadShort();
+
+	// Always read origin and frame
+	const origin = new Float32Array( 3 );
+	origin[ 0 ] = MSG_ReadCoord();
+	origin[ 1 ] = MSG_ReadCoord();
+	origin[ 2 ] = MSG_ReadCoord();
+
+	const frame = MSG_ReadByte();
+
+	// Read optional msec
+	let msec = 0;
+	if ( flags & PF_MSEC )
+		msec = MSG_ReadByte();
+
+	// Read optional usercmd_t (delta compressed)
+	let cmd = null;
+	if ( flags & PF_COMMAND ) {
+
+		const cmdbits = MSG_ReadByte();
+		cmd = {
+			msec: 0,
+			angles: new Float32Array( 3 ),
+			forwardmove: 0,
+			sidemove: 0,
+			upmove: 0,
+			buttons: 0,
+			impulse: 0
+		};
+
+		if ( cmdbits & CM_ANGLE1 )
+			cmd.angles[ 0 ] = MSG_ReadAngle16();
+		if ( cmdbits & CM_ANGLE2 )
+			cmd.angles[ 1 ] = MSG_ReadAngle16();
+		if ( cmdbits & CM_ANGLE3 )
+			cmd.angles[ 2 ] = MSG_ReadAngle16();
+		if ( cmdbits & CM_FORWARD )
+			cmd.forwardmove = MSG_ReadShort();
+		if ( cmdbits & CM_SIDE )
+			cmd.sidemove = MSG_ReadShort();
+		if ( cmdbits & CM_UP )
+			cmd.upmove = MSG_ReadShort();
+		if ( cmdbits & CM_BUTTONS )
+			cmd.buttons = MSG_ReadByte();
+		if ( cmdbits & CM_IMPULSE )
+			cmd.impulse = MSG_ReadByte();
+
+	}
+
+	// Read optional velocity
+	const velocity = new Float32Array( 3 );
+	if ( flags & PF_VELOCITY1 )
+		velocity[ 0 ] = MSG_ReadShort();
+	if ( flags & PF_VELOCITY2 )
+		velocity[ 1 ] = MSG_ReadShort();
+	if ( flags & PF_VELOCITY3 )
+		velocity[ 2 ] = MSG_ReadShort();
+
+	// Read optional model
+	let modelindex = 0;
+	if ( flags & PF_MODEL )
+		modelindex = MSG_ReadByte();
+
+	// Read optional skin
+	let skin = 0;
+	if ( flags & PF_SKINNUM )
+		skin = MSG_ReadByte();
+
+	// Read optional effects
+	let effects = 0;
+	if ( flags & PF_EFFECTS )
+		effects = MSG_ReadByte();
+
+	// Read optional weaponframe
+	let weaponframe = 0;
+	if ( flags & PF_WEAPONFRAME )
+		weaponframe = MSG_ReadByte();
+
+	// Store the player info for prediction
+	CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd );
+
+}
+
+/*
 =====================
 CL_NewTranslation
 =====================
@@ -988,6 +1086,10 @@ export function CL_ParseServerMessage() {
 
 			case svc_sellscreen:
 				Cmd_ExecuteString( 'help', src_command );
+				break;
+
+			case svc_playerinfo:
+				CL_ParsePlayerInfo();
 				break;
 
 		}

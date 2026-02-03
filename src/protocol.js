@@ -123,3 +123,33 @@ export const TE_LAVASPLASH = 10;
 export const TE_TELEPORT = 11;
 export const TE_EXPLOSION2 = 12;
 export const TE_BEAM = 13;
+
+//
+// QuakeWorld-style player info (svc_playerinfo)
+// Used for client-side prediction of other players
+//
+export const svc_playerinfo = 42;
+
+// playerinfo flags from server
+// playerinfo always sends: playernum, flags, origin[] and frame
+export const PF_MSEC = ( 1 << 0 );
+export const PF_COMMAND = ( 1 << 1 );
+export const PF_VELOCITY1 = ( 1 << 2 );
+export const PF_VELOCITY2 = ( 1 << 3 );
+export const PF_VELOCITY3 = ( 1 << 4 );
+export const PF_MODEL = ( 1 << 5 );
+export const PF_SKINNUM = ( 1 << 6 );
+export const PF_EFFECTS = ( 1 << 7 );
+export const PF_WEAPONFRAME = ( 1 << 8 ); // only sent for view player
+export const PF_DEAD = ( 1 << 9 ); // don't block movement any more
+export const PF_GIB = ( 1 << 10 ); // offset the view height differently
+
+// command move bits (for delta compression of usercmd_t)
+export const CM_ANGLE1 = ( 1 << 0 );
+export const CM_ANGLE3 = ( 1 << 1 );
+export const CM_FORWARD = ( 1 << 2 );
+export const CM_SIDE = ( 1 << 3 );
+export const CM_UP = ( 1 << 4 );
+export const CM_BUTTONS = ( 1 << 5 );
+export const CM_IMPULSE = ( 1 << 6 );
+export const CM_ANGLE2 = ( 1 << 7 );
