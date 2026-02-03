@@ -471,13 +471,12 @@ function onDeviceOrientation( e ) {
 
 	if ( prevBeta !== null && prevGamma !== null ) {
 
-		// Delta for beta with wraparound (-180 to 180)
 		let dBeta = beta - prevBeta;
-		if ( dBeta > 180 ) dBeta -= 360;
-		if ( dBeta < - 180 ) dBeta += 360;
-
-		// Delta for gamma (no wraparound needed, range is -90 to 90)
 		let dGamma = gamma - prevGamma;
+
+		// Clamp deltas - ignore large jumps from gimbal lock or axis flips
+		if ( dBeta > 10 || dBeta < - 10 ) dBeta = 0;
+		if ( dGamma > 10 || dGamma < - 10 ) dGamma = 0;
 
 		// deviceorientation reports values relative to the device's physical
 		// axes, NOT the screen orientation. We must check the actual screen
