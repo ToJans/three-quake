@@ -589,6 +589,25 @@ export function GTAO_Apply() {
 	// Store current render target
 	const currentRenderTarget = renderer.getRenderTarget();
 
+	// Hide transparent objects for depth/normal passes (sprites, particles)
+	// They don't work with override materials and would appear as black squares
+	const hiddenObjects = [];
+	scene.traverse( function ( object ) {
+
+		if ( object.isMesh && object.visible && object.material ) {
+
+			const mat = object.material;
+			if ( mat.transparent || mat.alphaTest > 0 ) {
+
+				object.visible = false;
+				hiddenObjects.push( object );
+
+			}
+
+		}
+
+	} );
+
 	// 1. Render depth buffer
 	depthMaterial.uniforms.cameraNear.value = camera.near;
 	depthMaterial.uniforms.cameraFar.value = camera.far;
@@ -603,6 +622,13 @@ export function GTAO_Apply() {
 	scene.overrideMaterial = normalMaterial;
 	renderer.render( scene, camera );
 	scene.overrideMaterial = null;
+
+	// Restore visibility of transparent objects
+	for ( const object of hiddenObjects ) {
+
+		object.visible = true;
+
+	}
 
 	// 3. Compute GTAO
 	gtaoMaterial.uniforms.tDepth.value = depthRenderTarget.texture;

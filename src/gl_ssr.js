@@ -701,6 +701,25 @@ function computeSSR() {
 	const width = vid.width;
 	const height = vid.height;
 
+	// Hide transparent objects for depth/normal/reflectivity passes (sprites, particles)
+	// They don't work with override materials and would appear as black squares
+	const hiddenObjects = [];
+	scene.traverse( function ( object ) {
+
+		if ( object.isMesh && object.visible && object.material ) {
+
+			const mat = object.material;
+			if ( mat.transparent || mat.alphaTest > 0 ) {
+
+				object.visible = false;
+				hiddenObjects.push( object );
+
+			}
+
+		}
+
+	} );
+
 	// 1. Render depth buffer
 	depthMaterial.uniforms.cameraNear.value = camera.near;
 	depthMaterial.uniforms.cameraFar.value = camera.far;
@@ -732,6 +751,13 @@ function computeSSR() {
 	scene.overrideMaterial = reflectivityMaterial;
 	renderer.render( scene, camera );
 	scene.overrideMaterial = null;
+
+	// Restore visibility of transparent objects (needed for color pass and main render)
+	for ( const object of hiddenObjects ) {
+
+		object.visible = true;
+
+	}
 
 	// Second pass: render water/reflective surfaces with high base reflectivity
 	// These have userData.reflectivity > 0 set in gl_rsurf.js
