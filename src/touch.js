@@ -33,9 +33,7 @@ let jumpImpulse = false;
 // Gyroscope state
 let gyroEnabled = false;
 let gyroPermissionRequested = false;
-let prevAlpha = null;
-let prevBeta = null;
-const GYRO_SENSITIVITY = 0.4;
+const GYRO_SENSITIVITY = 0.15;
 
 // UI elements
 let overlay = null;
@@ -452,38 +450,29 @@ function onTouchEnd( e ) {
 /*
 =================
 Gyroscope support
+
+Uses devicemotion (rotationRate) instead of deviceorientation because
+rotationRate gives angular velocity directly from the gyroscope without
+depending on the magnetometer. More reliable for aiming.
 =================
 */
 
-function onDeviceOrientation( e ) {
+function onDeviceMotion( e ) {
 
 	if ( ! enabled ) return;
 
-	const alpha = e.alpha; // Z-axis: 0-360
-	const beta = e.beta;   // X-axis: -180 to 180
+	const rate = e.rotationRate;
+	if ( rate === null ) return;
 
-	if ( alpha === null || beta === null ) return;
+	// rotationRate gives degrees per second
+	// Convert to per-frame delta using the sample interval
+	const dt = ( e.interval || 16 ) / 1000;
 
-	if ( prevAlpha !== null && prevBeta !== null ) {
-
-		// Calculate alpha delta with wraparound handling (0<->360)
-		let dAlpha = alpha - prevAlpha;
-		if ( dAlpha > 180 ) dAlpha -= 360;
-		if ( dAlpha < - 180 ) dAlpha += 360;
-
-		let dBeta = beta - prevBeta;
-		if ( dBeta > 180 ) dBeta -= 360;
-		if ( dBeta < - 180 ) dBeta += 360;
-
-		// In landscape, alpha rotation maps to yaw, beta to pitch
-		// Scale by sensitivity to keep it subtle
-		lookDeltaX += dAlpha * GYRO_SENSITIVITY;
-		lookDeltaY += dBeta * GYRO_SENSITIVITY;
-
-	}
-
-	prevAlpha = alpha;
-	prevBeta = beta;
+	// In landscape, the device axes are rotated 90 degrees:
+	// - rate.alpha (Z-axis spin) = yaw (looking left/right)
+	// - rate.beta (X-axis tilt) = pitch (looking up/down)
+	if ( rate.alpha !== null ) lookDeltaX += rate.alpha * dt * GYRO_SENSITIVITY;
+	if ( rate.beta !== null ) lookDeltaY += rate.beta * dt * GYRO_SENSITIVITY;
 
 }
 
@@ -493,12 +482,12 @@ async function Gyro_RequestPermission() {
 	gyroPermissionRequested = true;
 
 	// iOS 13+ requires explicit permission request from a user gesture
-	if ( typeof DeviceOrientationEvent !== 'undefined' &&
-		typeof DeviceOrientationEvent.requestPermission === 'function' ) {
+	if ( typeof DeviceMotionEvent !== 'undefined' &&
+		typeof DeviceMotionEvent.requestPermission === 'function' ) {
 
 		try {
 
-			const permission = await DeviceOrientationEvent.requestPermission();
+			const permission = await DeviceMotionEvent.requestPermission();
 			if ( permission === 'granted' ) {
 
 				Gyro_Enable();
@@ -528,9 +517,7 @@ function Gyro_Enable() {
 
 	if ( gyroEnabled ) return;
 	gyroEnabled = true;
-	prevAlpha = null;
-	prevBeta = null;
-	window.addEventListener( 'deviceorientation', onDeviceOrientation );
+	window.addEventListener( 'devicemotion', onDeviceMotion );
 	console.log( 'Gyroscope aiming enabled' );
 
 }
@@ -539,9 +526,7 @@ function Gyro_Disable() {
 
 	if ( ! gyroEnabled ) return;
 	gyroEnabled = false;
-	prevAlpha = null;
-	prevBeta = null;
-	window.removeEventListener( 'deviceorientation', onDeviceOrientation );
+	window.removeEventListener( 'devicemotion', onDeviceMotion );
 
 }
 
