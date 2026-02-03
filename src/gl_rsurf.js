@@ -257,6 +257,9 @@ function _getWaterMesh( s, geometry, material, renderGroup ) {
 		mesh = new THREE.Mesh( geometry, material );
 		s._waterMesh = mesh;
 
+		// Tag water mesh as highly reflective for SSR
+		mesh.userData.reflectivity = 0.8;
+
 	} else {
 
 		if ( mesh.geometry !== geometry ) mesh.geometry = geometry;

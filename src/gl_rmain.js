@@ -37,7 +37,8 @@ import {
 } from './gl_tonemapping.js';
 import {
 	SSR_Init, SSR_Apply, SSR_ApplyToTarget, SSR_SetEnabled, SSR_SetMaxSteps,
-	SSR_SetMaxDistance, SSR_SetThickness, SSR_SetIntensity, SSR_SetDebugMode
+	SSR_SetMaxDistance, SSR_SetThickness, SSR_SetIntensity, SSR_SetDebugMode,
+	SSR_SetFloorReflectivity, SSR_SetWaterReflectivity, SSR_SetBaseReflectivity
 } from './gl_ssr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
@@ -238,8 +239,11 @@ export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true ); // Screen Space R
 export const cg_hq_ssr_maxsteps = new cvar_t( 'cg_hq_ssr_maxsteps', '32', true ); // Ray march steps
 export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '100', true ); // Max reflection distance
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '0.5', true ); // Depth tolerance
-export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '0.5', true ); // Reflection strength
-export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' ); // 0=off, 1=SSR only, 2=mask, 3=depth
+export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true ); // Reflection strength
+export const cg_hq_ssr_floor = new cvar_t( 'cg_hq_ssr_floor', '0.5', true ); // Floor reflectivity (0-1)
+export const cg_hq_ssr_water = new cvar_t( 'cg_hq_ssr_water', '0.8', true ); // Water reflectivity (0-1)
+export const cg_hq_ssr_base = new cvar_t( 'cg_hq_ssr_base', '0.1', true ); // Base reflectivity for all surfaces (0-1)
+export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0' ); // 0=off, 1=SSR only, 2=mask, 3=depth, 4=scene, 5=reflectivity
 
 // Placeholder cvars for future features (documented in visual fidelity guide)
 export const cg_hq_gi = new cvar_t( 'cg_hq_gi', '0', true ); // Global Illumination
@@ -951,6 +955,9 @@ let _lastSSRMaxSteps = - 1;
 let _lastSSRMaxDistance = - 1;
 let _lastSSRThickness = - 1;
 let _lastSSRIntensity = - 1;
+let _lastSSRFloor = - 1;
+let _lastSSRWater = - 1;
+let _lastSSRBase = - 1;
 let _lastSSRDebug = - 1;
 
 function isHQFeatureEnabled( bitmask, individualCvar ) {
@@ -1127,6 +1134,27 @@ function R_ApplyHQEffects() {
 
 			SSR_SetIntensity( cg_hq_ssr_intensity.value );
 			_lastSSRIntensity = cg_hq_ssr_intensity.value;
+
+		}
+
+		if ( cg_hq_ssr_floor.value !== _lastSSRFloor ) {
+
+			SSR_SetFloorReflectivity( cg_hq_ssr_floor.value );
+			_lastSSRFloor = cg_hq_ssr_floor.value;
+
+		}
+
+		if ( cg_hq_ssr_water.value !== _lastSSRWater ) {
+
+			SSR_SetWaterReflectivity( cg_hq_ssr_water.value );
+			_lastSSRWater = cg_hq_ssr_water.value;
+
+		}
+
+		if ( cg_hq_ssr_base.value !== _lastSSRBase ) {
+
+			SSR_SetBaseReflectivity( cg_hq_ssr_base.value );
+			_lastSSRBase = cg_hq_ssr_base.value;
 
 		}
 

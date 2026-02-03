@@ -16,12 +16,14 @@ let ssrInitialized = false;
 let depthRenderTarget = null;
 let normalRenderTarget = null;
 let colorRenderTarget = null;
+let reflectivityRenderTarget = null;
 let ssrRenderTarget = null;
 let ssrBlurRenderTarget = null;
 
 // Materials
 let depthMaterial = null;
 let normalMaterial = null;
+let reflectivityMaterial = null;
 let ssrMaterial = null;
 let blurMaterial = null;
 let compositeMaterial = null;
@@ -96,6 +98,46 @@ void main() {
 }
 `;
 
+// Reflectivity material - outputs surface reflectivity based on:
+// - userData.reflectivity (for water/special surfaces)
+// - World-space normal direction (floors are more reflective)
+const reflectivityVertexShader = /* glsl */`
+varying vec3 vWorldNormal;
+
+void main() {
+	// Transform normal to world space
+	vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const reflectivityFragmentShader = /* glsl */`
+precision highp float;
+
+varying vec3 vWorldNormal;
+uniform float baseReflectivity;    // Per-object base (for water)
+uniform float floorReflectivity;   // Extra reflectivity for floors
+uniform float globalBaseReflectivity; // Minimum for all surfaces (for glass/walls)
+
+void main() {
+	vec3 worldNormal = normalize(vWorldNormal);
+
+	// Check if this is a floor (normal pointing up in world space)
+	// In Quake coords: Z is up
+	float upFacing = max(0.0, worldNormal.z);
+
+	// Floors (upFacing > 0.7) get floor reflectivity
+	// Steep angle threshold to avoid walls
+	float floorFactor = smoothstep(0.7, 0.9, upFacing);
+
+	// Combine: global base + floor bonus + per-object base (water)
+	float reflectivity = globalBaseReflectivity + floorFactor * floorReflectivity;
+	reflectivity = max(reflectivity, baseReflectivity);
+
+	gl_FragColor = vec4(reflectivity, reflectivity, reflectivity, 1.0);
+}
+`;
+
 // SSR ray marching shader
 const ssrFragmentShader = /* glsl */`
 precision highp float;
@@ -105,6 +147,7 @@ varying vec2 vUv;
 uniform sampler2D tDepth;
 uniform sampler2D tNormal;
 uniform sampler2D tColor;
+uniform sampler2D tReflectivity;
 uniform vec2 resolution;
 uniform float cameraNear;
 uniform float cameraFar;
@@ -144,11 +187,11 @@ vec2 viewToScreen(vec3 viewPos) {
 }
 
 // Fresnel approximation - more reflection at grazing angles
-float fresnel(vec3 viewDir, vec3 normal) {
+// Returns value from baseReflectivity to 1.0
+float fresnel(vec3 viewDir, vec3 normal, float baseReflectivity) {
 	float cosTheta = max(dot(-viewDir, normal), 0.0);
-	// Schlick's approximation with F0 = 0.04 (non-metallic)
-	float F0 = 0.04;
-	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+	// Schlick's approximation - use surface reflectivity as F0
+	return baseReflectivity + (1.0 - baseReflectivity) * pow(1.0 - cosTheta, 5.0);
 }
 
 void main() {
@@ -156,6 +199,15 @@ void main() {
 
 	// Skip sky/far plane
 	if (centerDepth > 0.99) {
+		gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+		return;
+	}
+
+	// Get surface reflectivity from mask
+	float surfaceReflectivity = texture2D(tReflectivity, vUv).r;
+
+	// Skip non-reflective surfaces early
+	if (surfaceReflectivity < 0.01) {
 		gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
 		return;
 	}
@@ -171,8 +223,9 @@ void main() {
 	// Reflect view direction around normal
 	vec3 reflectDir = reflect(viewDir, normal);
 
-	// Calculate Fresnel for reflection intensity
-	float fresnelFactor = fresnel(viewDir, normal);
+	// Calculate reflection strength using Fresnel
+	// Surface reflectivity is the base, Fresnel boosts at grazing angles
+	float reflectionStrength = fresnel(viewDir, normal, surfaceReflectivity);
 
 	// Skip if reflection direction points away from camera
 	if (reflectDir.z > 0.0) {
@@ -212,19 +265,14 @@ void main() {
 		float depthDiff = -rayPos.z - rayViewZ;
 
 		if (depthDiff > 0.0 && depthDiff < thickness) {
-			// Hit! Calculate strength based on:
-			// - Distance traveled (fade with distance)
-			// - Screen edge (fade near edges)
-			// - Fresnel
-
-			float distanceFade = 1.0 - (float(i) / float(maxSteps));
-
-			// Edge fade
+			// Hit!
+			// Edge fade only - don't fade by distance (looks better)
 			vec2 edgeFade = smoothstep(0.0, 0.1, rayUV) * smoothstep(1.0, 0.9, rayUV);
 			float screenFade = edgeFade.x * edgeFade.y;
 
 			hitUV = rayUV;
-			hitStrength = distanceFade * screenFade * fresnelFactor;
+			// Reflectivity controls strength, screen edge fades artifacts
+			hitStrength = reflectionStrength * screenFade;
 			break;
 		}
 	}
@@ -239,7 +287,7 @@ void main() {
 }
 `;
 
-// Simple blur for SSR (reduce noise)
+// Blur for SSR (reduce moiré and noise)
 const blurFragmentShader = /* glsl */`
 precision highp float;
 
@@ -259,9 +307,9 @@ void main() {
 	vec4 totalSSR = centerSSR;
 	float totalWeight = 1.0;
 
-	// Bilateral blur
-	for (int i = 1; i <= 3; i++) {
-		vec2 offset = direction * float(i) * texelSize;
+	// Wider bilateral blur to reduce moiré (7 pixel radius)
+	for (int i = 1; i <= 7; i++) {
+		vec2 offset = direction * float(i) * texelSize * 1.5; // 1.5x spacing for wider blur
 
 		for (int sign = -1; sign <= 1; sign += 2) {
 			vec2 sampleUV = vUv + offset * float(sign);
@@ -274,8 +322,8 @@ void main() {
 			vec4 sampleSSR = texture2D(tSSR, sampleUV);
 
 			float depthDiff = abs(centerDepth - sampleDepth);
-			float depthWeight = exp(-depthDiff * 50.0);
-			float spatialWeight = exp(-float(i * i) / 4.0);
+			float depthWeight = exp(-depthDiff * 100.0); // Stricter depth test
+			float spatialWeight = exp(-float(i * i) / 18.0); // Wider gaussian
 			float weight = depthWeight * spatialWeight;
 
 			totalSSR += sampleSSR * weight;
@@ -296,19 +344,27 @@ varying vec2 vUv;
 uniform sampler2D tSSR;
 uniform sampler2D tColor;
 uniform sampler2D tDepth;
+uniform sampler2D tReflectivity;
 uniform float debugMode;
 
 void main() {
 	vec4 ssr = texture2D(tSSR, vUv);
 	vec3 sceneColor = texture2D(tColor, vUv).rgb;
 	float depth = texture2D(tDepth, vUv).r;
+	float reflectivity = texture2D(tReflectivity, vUv).r;
 
 	// Debug modes:
-	// 0 = normal composite (additive blend reflections onto screen)
+	// 0 = normal composite
 	// 1 = show SSR only
 	// 2 = show reflection mask (alpha)
 	// 3 = show depth
 	// 4 = show scene color buffer
+	// 5 = show reflectivity mask
+
+	if (debugMode > 4.5) {
+		gl_FragColor = vec4(reflectivity, reflectivity, reflectivity, 1.0);
+		return;
+	}
 
 	if (debugMode > 3.5) {
 		gl_FragColor = vec4(sceneColor, 1.0);
@@ -340,8 +396,10 @@ void main() {
 // Initialization
 //============================================================================
 
-// Framebuffer texture to copy screen content
-let screenCopyTexture = null;
+// SSR parameters for reflectivity
+let ssrFloorReflectivity = 0.5; // How reflective floors are (0-1)
+let ssrWaterReflectivity = 0.8; // How reflective water is (0-1)
+let ssrBaseReflectivity = 0.1; // Base reflectivity for all surfaces (0-1)
 
 function createRenderTargets() {
 
@@ -368,10 +426,11 @@ function createRenderTargets() {
 		type: THREE.HalfFloatType
 	} );
 
-	// Create framebuffer texture to copy screen content
-	screenCopyTexture = new THREE.FramebufferTexture( width, height );
-	screenCopyTexture.minFilter = THREE.LinearFilter;
-	screenCopyTexture.magFilter = THREE.LinearFilter;
+	reflectivityRenderTarget = new THREE.WebGLRenderTarget( width, height, {
+		minFilter: THREE.LinearFilter,
+		magFilter: THREE.LinearFilter,
+		format: THREE.RGBAFormat
+	} );
 
 	ssrRenderTarget = new THREE.WebGLRenderTarget( width, height, {
 		minFilter: THREE.LinearFilter,
@@ -405,11 +464,22 @@ function createMaterials() {
 		fragmentShader: normalFragmentShader
 	} );
 
+	reflectivityMaterial = new THREE.ShaderMaterial( {
+		uniforms: {
+			baseReflectivity: { value: 0.0 },
+			floorReflectivity: { value: ssrFloorReflectivity },
+			globalBaseReflectivity: { value: ssrBaseReflectivity }
+		},
+		vertexShader: reflectivityVertexShader,
+		fragmentShader: reflectivityFragmentShader
+	} );
+
 	ssrMaterial = new THREE.ShaderMaterial( {
 		uniforms: {
 			tDepth: { value: null },
 			tNormal: { value: null },
 			tColor: { value: null },
+			tReflectivity: { value: null },
 			resolution: { value: new THREE.Vector2() },
 			cameraNear: { value: 4 },
 			cameraFar: { value: 4096 },
@@ -444,6 +514,7 @@ function createMaterials() {
 			tSSR: { value: null },
 			tColor: { value: null },
 			tDepth: { value: null },
+			tReflectivity: { value: null },
 			debugMode: { value: 0.0 }
 		},
 		vertexShader: fullscreenVertexShader,
@@ -492,18 +563,9 @@ export function SSR_Resize( width, height ) {
 	depthRenderTarget.setSize( width, height );
 	normalRenderTarget.setSize( width, height );
 	colorRenderTarget.setSize( width, height );
+	reflectivityRenderTarget.setSize( width, height );
 	ssrRenderTarget.setSize( width, height );
 	ssrBlurRenderTarget.setSize( width, height );
-
-	// Recreate framebuffer texture at new size
-	if ( screenCopyTexture ) {
-
-		screenCopyTexture.dispose();
-		screenCopyTexture = new THREE.FramebufferTexture( width, height );
-		screenCopyTexture.minFilter = THREE.LinearFilter;
-		screenCopyTexture.magFilter = THREE.LinearFilter;
-
-	}
 
 }
 
@@ -576,6 +638,29 @@ export function SSR_SetDebugMode( value ) {
 
 }
 
+export function SSR_SetFloorReflectivity( value ) {
+
+	ssrFloorReflectivity = value;
+	if ( reflectivityMaterial ) {
+
+		reflectivityMaterial.uniforms.floorReflectivity.value = value;
+
+	}
+
+}
+
+export function SSR_SetWaterReflectivity( value ) {
+
+	ssrWaterReflectivity = value;
+
+}
+
+export function SSR_SetBaseReflectivity( value ) {
+
+	ssrBaseReflectivity = value;
+
+}
+
 //============================================================================
 // Main render function
 //============================================================================
@@ -628,17 +713,65 @@ function computeSSR() {
 	renderer.render( scene, camera );
 	scene.overrideMaterial = null;
 
-	// 3. Render scene color to HDR buffer
+	// 3. Render reflectivity mask
+	// Uses world-space normals to determine floor reflectivity
+	// Water meshes get high base reflectivity via userData
+	// All surfaces get global base reflectivity (for glass, etc.)
+	reflectivityMaterial.uniforms.floorReflectivity.value = ssrFloorReflectivity;
+	reflectivityMaterial.uniforms.baseReflectivity.value = 0.0;
+	reflectivityMaterial.uniforms.globalBaseReflectivity.value = ssrBaseReflectivity;
+
+	renderer.setRenderTarget( reflectivityRenderTarget );
+	renderer.setClearColor( 0x000000, 1 );
+	renderer.clear( true, true, false );
+
+	// First pass: render all surfaces with normal-based reflectivity
+	scene.overrideMaterial = reflectivityMaterial;
+	renderer.render( scene, camera );
+	scene.overrideMaterial = null;
+
+	// Second pass: render water/reflective surfaces with high base reflectivity
+	// These have userData.reflectivity > 0 set in gl_rsurf.js
+	reflectivityMaterial.uniforms.baseReflectivity.value = ssrWaterReflectivity;
+	reflectivityMaterial.uniforms.floorReflectivity.value = ssrWaterReflectivity; // Water is always reflective
+
+	const waterMeshes = [];
+	scene.traverse( function ( object ) {
+
+		if ( object.isMesh && object.visible && object.userData.reflectivity > 0 ) {
+
+			waterMeshes.push( { mesh: object, originalMaterial: object.material } );
+			object.material = reflectivityMaterial;
+
+		}
+
+	} );
+
+	if ( waterMeshes.length > 0 ) {
+
+		renderer.render( scene, camera );
+
+		// Restore original materials
+		for ( const item of waterMeshes ) {
+
+			item.mesh.material = item.originalMaterial;
+
+		}
+
+	}
+
+	// 4. Render scene color to HDR buffer
 	// Need to explicitly clear and render with proper settings
 	renderer.setRenderTarget( colorRenderTarget );
 	renderer.setClearColor( 0x000000, 1 );
 	renderer.clear( true, true, false );
 	renderer.render( scene, camera );
 
-	// 4. Compute SSR
+	// 5. Compute SSR
 	ssrMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
 	ssrMaterial.uniforms.tNormal.value = normalRenderTarget.texture;
 	ssrMaterial.uniforms.tColor.value = colorRenderTarget.texture;
+	ssrMaterial.uniforms.tReflectivity.value = reflectivityRenderTarget.texture;
 	ssrMaterial.uniforms.resolution.value.set( width, height );
 	ssrMaterial.uniforms.cameraNear.value = camera.near;
 	ssrMaterial.uniforms.cameraFar.value = camera.far;
@@ -649,7 +782,7 @@ function computeSSR() {
 	renderer.setRenderTarget( ssrRenderTarget );
 	renderer.render( screenScene, screenCamera );
 
-	// 5. Blur SSR - horizontal
+	// 5. Blur SSR - first pass horizontal
 	blurMaterial.uniforms.tSSR.value = ssrRenderTarget.texture;
 	blurMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
 	blurMaterial.uniforms.resolution.value.set( width, height );
@@ -659,7 +792,21 @@ function computeSSR() {
 	renderer.setRenderTarget( ssrBlurRenderTarget );
 	renderer.render( screenScene, screenCamera );
 
-	// 6. Blur SSR - vertical
+	// 6. Blur SSR - first pass vertical
+	blurMaterial.uniforms.tSSR.value = ssrBlurRenderTarget.texture;
+	blurMaterial.uniforms.direction.value.set( 0, 1 );
+
+	renderer.setRenderTarget( ssrRenderTarget );
+	renderer.render( screenScene, screenCamera );
+
+	// 7. Blur SSR - second pass horizontal (reduce moiré further)
+	blurMaterial.uniforms.tSSR.value = ssrRenderTarget.texture;
+	blurMaterial.uniforms.direction.value.set( 1, 0 );
+
+	renderer.setRenderTarget( ssrBlurRenderTarget );
+	renderer.render( screenScene, screenCamera );
+
+	// 8. Blur SSR - second pass vertical
 	blurMaterial.uniforms.tSSR.value = ssrBlurRenderTarget.texture;
 	blurMaterial.uniforms.direction.value.set( 0, 1 );
 
@@ -681,6 +828,7 @@ export function SSR_Apply() {
 	compositeMaterial.uniforms.tSSR.value = ssrRenderTarget.texture;
 	compositeMaterial.uniforms.tColor.value = colorRenderTarget.texture;
 	compositeMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
+	compositeMaterial.uniforms.tReflectivity.value = reflectivityRenderTarget.texture;
 
 	screenQuad.material = compositeMaterial;
 	renderer.setRenderTarget( currentRenderTarget );
@@ -702,6 +850,7 @@ export function SSR_ApplyToTarget() {
 	compositeMaterial.uniforms.tSSR.value = ssrRenderTarget.texture;
 	compositeMaterial.uniforms.tColor.value = colorRenderTarget.texture;
 	compositeMaterial.uniforms.tDepth.value = depthRenderTarget.texture;
+	compositeMaterial.uniforms.tReflectivity.value = reflectivityRenderTarget.texture;
 
 	screenQuad.material = compositeMaterial;
 	renderer.setRenderTarget( outputTarget );
@@ -727,13 +876,14 @@ export function SSR_Dispose() {
 	if ( depthRenderTarget ) depthRenderTarget.dispose();
 	if ( normalRenderTarget ) normalRenderTarget.dispose();
 	if ( colorRenderTarget ) colorRenderTarget.dispose();
-	if ( screenCopyTexture ) screenCopyTexture.dispose();
+	if ( reflectivityRenderTarget ) reflectivityRenderTarget.dispose();
 	if ( ssrRenderTarget ) ssrRenderTarget.dispose();
 	if ( ssrBlurRenderTarget ) ssrBlurRenderTarget.dispose();
 	if ( ssrOutputTarget ) ssrOutputTarget.dispose();
 
 	if ( depthMaterial ) depthMaterial.dispose();
 	if ( normalMaterial ) normalMaterial.dispose();
+	if ( reflectivityMaterial ) reflectivityMaterial.dispose();
 	if ( ssrMaterial ) ssrMaterial.dispose();
 	if ( blurMaterial ) blurMaterial.dispose();
 	if ( compositeMaterial ) compositeMaterial.dispose();
