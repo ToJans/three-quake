@@ -216,7 +216,7 @@ export const cg_hq = new cvar_t( 'cg_hq', '75', true ); // bitmask: 1=SSR, 2=AO,
 
 // Individual feature toggles
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true ); // Ambient Occlusion (0=use cg_hq, 1=force on, -1=force off)
-export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '2.0', true );
+export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '64', true ); // Quake units
 export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.5', true );
 export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0' ); // 0=off, 1=white, 2=AO, 3=depth, 4=normals
 

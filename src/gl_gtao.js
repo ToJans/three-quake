@@ -34,7 +34,7 @@ let screenScene = null;
 let screenCamera = null;
 
 // Parameters (controlled by cvars)
-let gtaoRadius = 2.0;
+let gtaoRadius = 64.0; // Quake units (~1.5m sampling radius)
 let gtaoIntensity = 1.5;
 let gtaoSamples = 8;
 let gtaoFalloff = 1.0;
