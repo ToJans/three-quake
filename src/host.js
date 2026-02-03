@@ -683,8 +683,6 @@ End the current game
 */
 export function Host_EndGame( message ) {
 
-	console.log( '[DEMO DEBUG] Host_EndGame: ' + message + ' demonum=' + cls.demonum + ' demoplayback=' + cls.demoplayback + ' state=' + cls.state );
-
 	Con_DPrintf( 'Host_EndGame: %s\n', message );
 
 	if ( sv.active )
@@ -692,12 +690,10 @@ export function Host_EndGame( message ) {
 
 	if ( cls.demonum !== - 1 ) {
 
-		console.log( '[DEMO DEBUG] Host_EndGame -> CL_NextDemo (demonum=' + cls.demonum + ')' );
 		CL_NextDemo();
 
 	} else {
 
-		console.log( '[DEMO DEBUG] Host_EndGame -> CL_Disconnect' );
 		CL_Disconnect();
 
 	}

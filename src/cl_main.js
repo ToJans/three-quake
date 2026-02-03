@@ -1026,7 +1026,9 @@ export function CL_ReadFromServer() {
 
 	// Client-side prediction (QuakeWorld style)
 	// Predicts local player position for responsive movement with low server tick rates
-	if ( ! sv.active ) {
+	// Skip during demo playback — prediction overwrites cl.time with realtime,
+	// which breaks the demo time gate when transitioning between demos.
+	if ( ! sv.active && ! cls.demoplayback ) {
 
 		CL_PredictMove();
 

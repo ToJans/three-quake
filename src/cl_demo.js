@@ -35,18 +35,10 @@ CL_StopPlayback
 Called when a demo file runs out, or the user starts a game
 ==============
 */
-// DEBUG: track demo end for 5 seconds
-let _demoEndDebugUntil = 0;
-let _demoMsgCount = 0;
-let _demoFrameCount = 0;
-
 export function CL_StopPlayback() {
 
 	if ( ! cls.demoplayback )
 		return;
-
-	console.log( '[DEMO DEBUG] CL_StopPlayback called, demonum=' + cls.demonum + ' state=' + cls.state );
-	_demoEndDebugUntil = performance.now() + 5000;
 
 	cls.demoplayback = false;
 	cls.demofile = null;
@@ -168,29 +160,11 @@ export function CL_GetMessage() {
 
 			} else if ( /* cl.time > 0 && */ cl.time <= cl.mtime[ 0 ] ) {
 
-				if ( _demoFrameCount < 5 ) {
-
-					console.log( '[DEMO DEBUG] time gate STOPPED: cl.time=' + cl.time.toFixed( 3 ) + ' mtime=' + cl.mtime[ 0 ].toFixed( 3 ) + ' msgs_this_frame=' + _demoMsgCount );
-
-				}
-
-				_demoMsgCount = 0;
-				_demoFrameCount ++;
 				return 0; // don't need another message yet
-
-			} else if ( _demoFrameCount < 5 ) {
-
-				console.log( '[DEMO DEBUG] time gate PASSED: cl.time=' + cl.time.toFixed( 3 ) + ' mtime=' + cl.mtime[ 0 ].toFixed( 3 ) + ' msgs_this_frame=' + _demoMsgCount + ' signon=' + cls.signon );
 
 			}
 
-		} else if ( _demoMsgCount === 0 && _demoFrameCount < 3 ) {
-
-			console.log( '[DEMO DEBUG] signon phase: signon=' + cls.signon + ' cl.time=' + cl.time.toFixed( 3 ) + ' mtime=' + cl.mtime[ 0 ].toFixed( 3 ) );
-
 		}
-
-		_demoMsgCount ++;
 
 		// get the next message from demo data
 		if ( ! cls.demodata || cls.demopos >= cls.demodata.length ) {
@@ -444,10 +418,6 @@ Play a demo from an ArrayBuffer (browser-specific entry point)
 ====================
 */
 export function CL_PlayDemoFromData( data ) {
-
-	console.log( '[DEMO DEBUG] CL_PlayDemoFromData: cl.time=' + cl.time.toFixed( 3 ) + ' mtime=' + cl.mtime[ 0 ].toFixed( 3 ) + ' dataLen=' + data.byteLength );
-	_demoMsgCount = 0;
-	_demoFrameCount = 0;
 
 	CL_Disconnect();
 
