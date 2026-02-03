@@ -1555,6 +1555,15 @@ function M_Options_Key( key ) {
 					break;
 				case 2:
 					Cbuf_AddText( 'exec default.cfg\n' );
+					// Re-apply WASD bindings for the web port
+					Cbuf_AddText( 'bind w +forward\n' );
+					Cbuf_AddText( 'bind s +back\n' );
+					Cbuf_AddText( 'bind a +moveleft\n' );
+					Cbuf_AddText( 'bind d +moveright\n' );
+					Cbuf_AddText( 'bind SPACE +jump\n' );
+					Cbuf_AddText( 'bind MOUSE1 +attack\n' );
+					Cbuf_AddText( 'cl_forwardspeed 400\n' );
+					Cbuf_AddText( 'cl_backspeed 400\n' );
 					break;
 				default:
 					M_AdjustSliders( 1 );

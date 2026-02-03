@@ -347,36 +347,40 @@ export function CL_SetUpPlayerPrediction( dopred ) {
 		playertime = realtime;
 
 	// Process all potential player slots
-	for ( let j = 1; j <= cl.maxclients && j < MAX_CLIENTS; j++ ) {
+	// Ported from QW cl_ents.c - reads from predicted_players[] data
+	// (populated by CL_SetPlayerInfo from svc_playerinfo messages)
+	for ( let j = 0; j < MAX_CLIENTS; j++ ) {
 		const pplayer = predicted_players[ j ];
-		pplayer.active = false;
 
-		const ent = cl_entities[ j ];
+		// Check if player was updated recently (within 2 seconds)
+		// This replaces the C code's state->messagenum != cl.parsecount check
+		if ( pplayer.msgtime <= 0 || ( realtime - pplayer.msgtime ) > 2.0 ) {
 
-		// Skip if entity wasn't updated recently
-		if ( ent.msgtime <= 0 )
+			pplayer.active = false;
 			continue;
 
-		// Skip if no model (dead or not spawned)
-		if ( ent.model == null )
+		}
+
+		// Skip if no model
+		if ( pplayer.modelindex <= 0 ) {
+
+			pplayer.active = false;
 			continue;
+
+		}
 
 		pplayer.active = true;
-		pplayer.modelindex = ent.model != null ? 1 : 0;
-		if ( pplayer.msgtime === 0 ) pplayer.msgtime = ent.msgtime;
-		VectorCopy( ent.angles, pplayer.angles );
 
 		// For the local player, use our predicted position
-		if ( j === cl.viewentity ) {
+		if ( j + 1 === cl.viewentity ) {
 			VectorCopy( cl_simorg, pplayer.origin );
 			VectorCopy( cl_simvel, pplayer.velocity );
 		} else {
 			// Only predict half the move to minimize overruns (QW: msec = 500 * dt)
 			let msec = ( 500 * ( playertime - pplayer.msgtime ) ) | 0;
 
-			if ( msec <= 0 || cl_predict_players.value === 0 || ! dopred ) {
-				// No prediction - use last known position
-				VectorCopy( pplayer.origin, pplayer.origin ); // keep svc_playerinfo origin
+			if ( msec <= 0 || cl_predict_players.value === 0 || dopred === false ) {
+				// No prediction - keep svc_playerinfo origin as-is
 			} else {
 				// Full physics prediction using movement commands from svc_playerinfo
 				if ( msec > 255 )
@@ -386,7 +390,7 @@ export function CL_SetUpPlayerPrediction( dopred ) {
 				VectorCopy( pplayer.origin, _predFrom.origin );
 				VectorCopy( pplayer.velocity, _predFrom.velocity );
 				VectorCopy( pplayer.cmd.angles, _predFrom.viewangles );
-				_predFrom.onground = ( pplayer.flags & PF_DEAD ) === 0; // dead players not on ground
+				_predFrom.onground = ( pplayer.flags & PF_DEAD ) === 0;
 				_predFrom.oldbuttons = 0;
 				_predFrom.waterjumptime = 0;
 				_predFrom.weaponframe = pplayer.weaponframe;
@@ -552,7 +556,7 @@ Called from CL_ParsePlayerInfo to set player state from server.
 This stores the QuakeWorld-style player info for prediction.
 =================
 */
-export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd ) {
+export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex ) {
 	if ( playernum < 0 || playernum >= MAX_CLIENTS )
 		return;
 
@@ -568,6 +572,8 @@ export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, ski
 	pplayer.effects = effects;
 	pplayer.weaponframe = weaponframe;
 	pplayer.msec = msec;
+	if ( modelindex != null )
+		pplayer.modelindex = modelindex;
 
 	// Copy movement command if provided
 	if ( cmd != null ) {
