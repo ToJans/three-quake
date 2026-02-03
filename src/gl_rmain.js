@@ -244,8 +244,8 @@ export const cg_hq_bloom_debug = new cvar_t( 'cg_hq_bloom_debug', '0' );
 // Tonemapping (bit 3)
 export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true );
 export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '0', true );
-export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '3', true );
-export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '3', true );
+export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '3.0', true );
+export const cg_hq_tonemapping_gamma = new cvar_t( 'cg_hq_tonemapping_gamma', '3.0', true );
 export const cg_hq_tonemapping_debug = new cvar_t( 'cg_hq_tonemapping_debug', '0' );
 
 //============================================================================
@@ -974,7 +974,7 @@ function R_ApplyHQEffects() {
 	// Use Three.js built-in postprocessing (SSR, GTAO, Bloom, OutputPass)
 	// The PostProcess_Render function handles all effects via EffectComposer
 	// Returns true if postprocessing was applied, false if no effects enabled
-	PostProcess_Render();
+	return PostProcess_Render();
 
 }
 
@@ -1341,15 +1341,15 @@ export function R_RenderView() {
 	// render mirror view
 	R_Mirror();
 
-	// Present the frame via Three.js
-	if ( renderer && scene && camera ) {
+	// Apply HQ post-processing effects (includes scene render via RenderPass)
+	// If no effects enabled, fall back to direct render
+	const postprocessApplied = R_ApplyHQEffects();
+
+	if ( ! postprocessApplied && renderer && scene && camera ) {
 
 		renderer.render( scene, camera );
 
 	}
-
-	// Apply HQ post-processing effects
-	R_ApplyHQEffects();
 
 	// Draw screen blend overlay AFTER main scene (damage flash, powerups, underwater tint)
 	R_PolyBlend();
