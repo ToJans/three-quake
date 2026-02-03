@@ -144,12 +144,12 @@ function Touch_CreateUI( container ) {
 	fireButton = document.createElement( 'div' );
 	fireButton.style.cssText = `
 		position: absolute;
-		right: 20px;
+		right: 60px;
 		top: 20px;
 		width: 100px;
 		height: 100px;
 		border-radius: 50%;
-		background: rgba(255, 100, 100, 0.3);
+		background: transparent;
 		border: 2px solid rgba(255, 100, 100, 0.5);
 		pointer-events: auto;
 		touch-action: none;
@@ -166,12 +166,12 @@ function Touch_CreateUI( container ) {
 	jumpButton = document.createElement( 'div' );
 	jumpButton.style.cssText = `
 		position: absolute;
-		right: 20px;
+		right: 60px;
 		top: 140px;
 		width: 100px;
 		height: 100px;
 		border-radius: 50%;
-		background: rgba(100, 150, 255, 0.3);
+		background: transparent;
 		border: 2px solid rgba(100, 150, 255, 0.5);
 		pointer-events: auto;
 		touch-action: none;
@@ -328,13 +328,13 @@ function onTouchStart( e ) {
 		} else if ( target === fireButton ) {
 
 			in_attack.state |= 1 + 2; // down + impulse down
-			fireButton.style.background = 'rgba(255, 100, 100, 0.5)';
+			fireButton.style.background = 'rgba(255, 100, 100, 0.2)';
 			if ( typeof navigator.vibrate === 'function' ) navigator.vibrate( 100 );
 
 		} else if ( target === jumpButton ) {
 
 			in_jump.state |= 1 + 2; // down + impulse down
-			jumpButton.style.background = 'rgba(100, 150, 255, 0.5)';
+			jumpButton.style.background = 'rgba(100, 150, 255, 0.2)';
 			if ( typeof navigator.vibrate === 'function' ) navigator.vibrate( 100 );
 
 		} else if ( target === pauseButton ) {
@@ -436,13 +436,13 @@ function onTouchEnd( e ) {
 
 			in_attack.state &= ~1; // up
 			in_attack.state |= 4; // impulse up
-			fireButton.style.background = 'rgba(255, 100, 100, 0.3)';
+			fireButton.style.background = 'transparent';
 
 		} else if ( target === jumpButton ) {
 
 			in_jump.state &= ~1; // up
 			in_jump.state |= 4; // impulse up
-			jumpButton.style.background = 'rgba(100, 150, 255, 0.3)';
+			jumpButton.style.background = 'transparent';
 
 		}
 
@@ -562,7 +562,10 @@ function Gyro_Enable() {
 	prevBeta = null;
 	prevGamma = null;
 	window.addEventListener( 'deviceorientation', onDeviceOrientation );
-	console.log( 'Gyroscope aiming enabled' );
+	const angle = ( screen.orientation && screen.orientation.angle !== undefined )
+		? screen.orientation.angle
+		: ( window.orientation || 0 );
+	console.log( 'Gyroscope aiming enabled, screen angle:', angle );
 
 }
 
