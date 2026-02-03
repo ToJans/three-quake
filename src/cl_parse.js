@@ -62,6 +62,9 @@ import { CL_SetServerState, CL_AcknowledgeCommand,
 	CL_GetServerSequence, CL_SetServerSequence, CL_GetFrame, CL_GetEntityFrame,
 	CL_GetValidSequence } from './cl_pred.js';
 import { R_TranslatePlayerSkin } from './gl_rmisc.js';
+
+// QuakeWorld model precache indices (set during CL_ParseServerInfo)
+export let cl_playerindex = -1;
 import { R_NewMap } from './gl_rmisc.js';
 import { R_ParseParticleEffect, R_AddEfrags } from './render.js';
 import { Host_Error, Host_EndGame, host_framecount, realtime, set_noclip_anglehack } from './host.js';
@@ -279,11 +282,12 @@ export function CL_ParseServerInfo() {
 	cl.model_precache.fill( null );
 	const model_precache = [];
 	model_precache[ 0 ] = '';
+	cl_playerindex = -1;
 	let nummodels;
 	for ( nummodels = 1; ; nummodels ++ ) {
 
 		const s = MSG_ReadString();
-		if ( ! s.length )
+		if ( s.length === 0 )
 			break;
 		if ( nummodels === MAX_MODELS ) {
 
@@ -293,7 +297,9 @@ export function CL_ParseServerInfo() {
 		}
 
 		model_precache[ nummodels ] = s;
-		// Mod_TouchModel( s );
+
+		if ( s === 'progs/player.mdl' )
+			cl_playerindex = nummodels;
 
 	}
 
@@ -1075,8 +1081,8 @@ function CL_ParsePlayerInfo() {
 	if ( flags & PF_VELOCITY3 )
 		velocity[ 2 ] = MSG_ReadShort();
 
-	// Read optional model
-	let modelindex = 0;
+	// Read optional model (default to player model if not specified)
+	let modelindex = cl_playerindex;
 	if ( flags & PF_MODEL )
 		modelindex = MSG_ReadByte();
 
@@ -1095,8 +1101,8 @@ function CL_ParsePlayerInfo() {
 	if ( flags & PF_WEAPONFRAME )
 		weaponframe = MSG_ReadByte();
 
-	// Store the player info for prediction
-	CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd );
+	// Store the player info for prediction and rendering
+	CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex );
 
 }
 

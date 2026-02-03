@@ -14,7 +14,7 @@ import { Cmd_AddCommand } from './cmd.js';
 import { Cbuf_InsertText } from './cmd.js';
 import { clc_disconnect, clc_stringcmd } from './protocol.js';
 import { CL_GetMessage, CL_PlayDemo_f } from './cl_demo.js';
-import { CL_ParseServerMessage } from './cl_parse.js';
+import { CL_ParseServerMessage, cl_playerindex } from './cl_parse.js';
 import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 	MAX_STATIC_ENTITIES, MAX_DEMOS, MAX_VISEDICTS,
 	ca_dedicated, ca_disconnected, ca_connected,
@@ -800,6 +800,89 @@ function CL_LinkPacketEntities() {
 
 }
 
+/*
+=============
+CL_LinkPlayers
+
+Create visible entities in the correct position
+for all current players. Ported from QW cl_ents.c.
+=============
+*/
+function CL_LinkPlayers() {
+
+	for ( let j = 0; j < cl.maxclients; j ++ ) {
+
+		const pplayer = CL_GetPredictedPlayer( j );
+		if ( pplayer == null )
+			continue;
+
+		// spawn light flashes, even ones coming from invisible objects
+		if ( ( pplayer.effects & 0x0004 ) !== 0 ) { // EF_BRIGHTLIGHT
+
+			const dl = CL_AllocDlight( j + 1 );
+			dl.origin[ 0 ] = pplayer.origin[ 0 ];
+			dl.origin[ 1 ] = pplayer.origin[ 1 ];
+			dl.origin[ 2 ] = pplayer.origin[ 2 ] + 16;
+			dl.radius = 400 + ( Math.random() * 32 | 0 );
+			dl.die = cl.time + 0.001;
+
+		}
+
+		if ( ( pplayer.effects & 0x0008 ) !== 0 ) { // EF_DIMLIGHT
+
+			const dl = CL_AllocDlight( j + 1 );
+			dl.origin[ 0 ] = pplayer.origin[ 0 ];
+			dl.origin[ 1 ] = pplayer.origin[ 1 ];
+			dl.origin[ 2 ] = pplayer.origin[ 2 ];
+			dl.radius = 200 + ( Math.random() * 32 | 0 );
+			dl.die = cl.time + 0.001;
+
+		}
+
+		// the player object never gets added (the local player is the camera)
+		if ( j + 1 === cl.viewentity )
+			continue;
+
+		if ( pplayer.modelindex <= 0 )
+			continue;
+
+		// grab an entity to fill in
+		if ( cl_numvisedicts >= MAX_VISEDICTS )
+			break; // object list is full
+
+		// Use the cl_entities entry for this player slot so Three.js mesh caching works
+		const ent = cl_entities[ j + 1 ];
+
+		ent.model = cl.model_precache[ pplayer.modelindex ];
+		if ( ent.model == null )
+			continue;
+
+		ent.skinnum = pplayer.skin;
+		ent.frame = pplayer.frame;
+		ent.effects = pplayer.effects;
+
+		// Set origin from predicted/server position
+		VectorCopy( pplayer.origin, ent.origin );
+
+		// Set angles from movement command (like QW CL_LinkPlayers)
+		if ( pplayer.cmd != null ) {
+
+			ent.angles[ 0 ] = - pplayer.cmd.angles[ 0 ] / 3;
+			ent.angles[ 1 ] = pplayer.cmd.angles[ 1 ];
+			ent.angles[ 2 ] = 0;
+
+		}
+
+		// Mark as updated
+		ent.msgtime = cl.mtime[ 0 ];
+
+		cl_visedicts[ cl_numvisedicts ] = ent;
+		set_cl_numvisedicts( cl_numvisedicts + 1 );
+
+	}
+
+}
+
 // Cached vectors for CL_RelinkEntities (avoid per-frame allocations)
 const _relinkOldorg = new Float32Array( 3 );
 const _relinkDelta = new Float32Array( 3 );
@@ -824,7 +907,7 @@ export function CL_RelinkEntities() {
 	for ( let i = 0; i < cl.num_statics; i ++ ) {
 		if ( cl_numvisedicts >= MAX_VISEDICTS ) break;
 		const ent = cl_static_entities[ i ];
-		if ( ! ent.model ) continue;
+		if ( ent.model == null ) continue;
 		cl_visedicts[ cl_numvisedicts ] = ent;
 		set_cl_numvisedicts( cl_numvisedicts + 1 );
 	}
@@ -854,22 +937,24 @@ export function CL_RelinkEntities() {
 
 	const bobjrotate = anglemod( 100 * cl.time );
 
-	// Calculate predicted positions for other players (for smoother rendering)
-	// Only do this when not in demo playback and prediction is enabled
-	const usePredictedPlayers = ! cls.demoplayback && ! sv.active && cl_nopred.value === 0;
-	if ( usePredictedPlayers ) {
-		CL_SetUpPlayerPrediction( true );
-	}
-
-	// When using QW-style delta compression, only relink player entities here
-	// (non-players are handled by CL_LinkPacketEntities below).
+	// When using QW-style delta compression, players are handled by
+	// CL_LinkPlayers and non-players by CL_LinkPacketEntities.
 	// During demo playback or when no valid packet entity data exists,
 	// relink ALL entities using the NQ-style path.
 	const usePacketEntities = CL_GetValidSequence() !== 0 && cls.demoplayback === false;
-	const maxRelinkEntity = usePacketEntities
-		? Math.min( cl.maxclients, cl.num_entities - 1 )
-		: cl.num_entities - 1;
-	for ( let i = 1; i <= maxRelinkEntity; i ++ ) {
+
+	if ( usePacketEntities ) {
+
+		// QW path: predict player positions and add them to visedicts
+		CL_SetUpPlayerPrediction( true );
+		CL_LinkPlayers();
+
+	}
+
+	// For QW path, skip player entity slots (they're handled above).
+	// For NQ path, process all entities including players.
+	const firstRelinkEntity = usePacketEntities ? cl.maxclients + 1 : 1;
+	for ( let i = firstRelinkEntity; i < cl.num_entities; i ++ ) {
 
 		const ent = cl_entities[ i ];
 		if ( ent.model == null ) {
@@ -925,18 +1010,6 @@ export function CL_RelinkEntities() {
 				else if ( d < - 180 )
 					d += 360;
 				ent.angles[ j ] = ent.msg_angles[ 1 ][ j ] + f * d;
-
-			}
-
-		}
-
-		// Use predicted position for other players (smoother multiplayer rendering)
-		if ( usePredictedPlayers && i !== cl.viewentity ) {
-
-			const pplayer = CL_GetPredictedPlayer( i );
-			if ( pplayer != null ) {
-
-				VectorCopy( pplayer.origin, ent.origin );
 
 			}
 
