@@ -4,14 +4,48 @@ import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf, COM_CheckParm } from './common.js';
 import { vid } from './vid.js';
+import { r_tex_pbr } from './gl_texture_enhance.js';
 
+/**
+ * Create material for Quake world surfaces with lightmaps.
+ * When r_tex_pbr is enabled and PBR maps exist, uses MeshStandardMaterial
+ * for physically-based rendering with normal/roughness maps.
+ * Otherwise falls back to MeshLambertMaterial for compatibility.
+ */
 function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 
 	lightmapTex.channel = 1; // Use uv1 for lightmap coordinates
 
-	// Use MeshLambertMaterial so surfaces respond to Three.js PointLights
-	// for dynamic lighting effects (explosions, muzzle flashes, etc.)
-	return new THREE.MeshLambertMaterial( {
+	// Check if PBR rendering is enabled and texture has PBR maps
+	const pbrEnabled = ( r_tex_pbr.value | 0 ) > 0;
+	const hasPBRMaps = diffuseMap && diffuseMap.userData &&
+		( diffuseMap.userData.normalMap || diffuseMap.userData.roughnessMap );
+
+	if ( pbrEnabled && hasPBRMaps ) {
+
+		// Use MeshStandardMaterial for PBR rendering
+		const material = new THREE.MeshStandardMaterial( {
+			map: diffuseMap,
+			lightMap: lightmapTex,
+			lightMapIntensity: 2,
+			// Apply PBR maps if available
+			normalMap: diffuseMap.userData.normalMap || null,
+			roughnessMap: diffuseMap.userData.roughnessMap || null,
+			// Base roughness/metalness values (maps modulate these)
+			roughness: 1.0, // Maximum roughness - no specular highlights
+			metalness: 0.0, // Non-metallic by default
+			// Normal map intensity - keep very subtle to avoid specular bloom
+			normalScale: new THREE.Vector2( 0.15, 0.15 )
+		} );
+
+		return material;
+
+	}
+
+	// Use MeshBasicMaterial - only shows lightmap + diffuse, ignores scene lights
+	// This prevents walls from catching specular highlights from dynamic lights
+	// (explosions, lightning, etc.) which looks wrong on static world geometry
+	return new THREE.MeshBasicMaterial( {
 		map: diffuseMap,
 		lightMap: lightmapTex,
 		lightMapIntensity: 2

@@ -31,6 +31,11 @@ import {
 import { MAX_QPATH } from './quakedef.js';
 import { gl_texturemode, GL_RegisterTexture } from './glquake.js';
 import { analyzeTexture } from './gl_texture_analysis.js';
+import { renderer } from './vid.js';
+import {
+	r_tex_upscale, r_tex_pbr, r_tex_upscale_filter,
+	enhanceTexture, generatePBRMaps
+} from './gl_texture_enhance.js';
 
 // ============================================================================
 // modelgen.h constants
@@ -683,7 +688,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha ) {
 
 	}
 
-	const texture = new THREE.DataTexture( rgba, width, height, THREE.RGBAFormat );
+	let texture = new THREE.DataTexture( rgba, width, height, THREE.RGBAFormat );
 	// Use cvar to determine filter mode: 0 = nearest (pixelated), 1 = linear (smooth)
 	const filter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
 	const mipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
@@ -697,10 +702,42 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha ) {
 	// Quake's UV T=0 at top + texture row 0 at V=0 means no flip is needed
 	texture.needsUpdate = true;
 
-	// Generate derived PBR maps (roughness, normal, reflectivity)
-	// Skip for very small textures (icons, etc.) and transparent textures
-	if ( width >= 16 && height >= 16 && ! alpha ) {
+	// Apply texture enhancement pipeline (upscaling + PBR maps)
+	// Only if enhancement cvars are enabled and renderer is available
+	const upscaleEnabled = ( r_tex_upscale.value | 0 ) > 0;
+	const pbrEnabled = ( r_tex_pbr.value | 0 ) > 0;
 
+	// Debug: log first texture enhancement attempt
+	if ( ! GL_LoadTexture._debugLogged ) {
+
+		console.log( '[TextureEnhance] CVars:', {
+			r_tex_upscale: r_tex_upscale.value,
+			r_tex_pbr: r_tex_pbr.value,
+			renderer: renderer ? 'available' : 'null',
+			upscaleEnabled,
+			pbrEnabled
+		} );
+		GL_LoadTexture._debugLogged = true;
+
+	}
+
+	if ( ( upscaleEnabled || pbrEnabled ) && renderer && ! alpha && width >= 16 && height >= 16 ) {
+
+		try {
+
+			console.log( '[TextureEnhance] Enhancing:', name, width + 'x' + height );
+			texture = enhanceTexture( renderer, texture, rgba, width, height, alpha );
+
+		} catch ( e ) {
+
+			console.warn( '[TextureEnhance] Failed for', name, e );
+
+		}
+
+	} else if ( width >= 16 && height >= 16 && ! alpha ) {
+
+		// Fallback: Generate basic PBR maps using old method when enhancement is disabled
+		// This maintains backward compatibility
 		try {
 
 			const derivedMaps = analyzeTexture( rgba, width, height );

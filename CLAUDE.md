@@ -86,3 +86,34 @@ For best quality:
 r_lightprobes_quality 2   // Best: 66 rays per sample
 r_lightprobes_samples 8   // Best: 8 samples per probe
 ```
+
+## Texture Enhancement System
+
+xBRZ pixel art upscaling with 5x5 kernel and optional PBR map generation.
+
+**Full documentation with comparison screenshots:** [docs/texture-enhancement.md](docs/texture-enhancement.md)
+
+### CVars
+
+| CVar | Default | Description |
+|------|---------|-------------|
+| `r_tex_upscale` | 0 | Texture upscaling: 0=off, 1=2x, 2=4x |
+| `r_tex_pbr` | 0 | PBR maps (normal/roughness): 0=off, 1=on |
+
+### Quick Start
+
+```
+r_tex_upscale 2    // 4x upscale for best quality
+map e1m1           // Reload map
+```
+
+### Memory Usage
+
+| Setting | Memory | Description |
+|---------|--------|-------------|
+| Off | ~2 MB | Original textures |
+| 2x | ~8 MB | Smoother edges |
+| 4x | ~32 MB | Maximum smoothness |
+| 4x + PBR | ~96 MB | Full enhancement |
+
+Check usage: `window.getTextureMemoryStats()`

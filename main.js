@@ -11,6 +11,7 @@ import { sv } from './src/server.js';
 import { scene, camera } from './src/gl_rmain.js';
 import { renderer } from './src/vid.js';
 import { Draw_CachePicFromPNG } from './src/gl_draw.js';
+import { getTextureMemoryStats } from './src/gl_texture_enhance.js';
 
 const parms = {
 	basedir: '.',
@@ -125,6 +126,7 @@ async function main() {
 		window.scene = scene;
 		Object.defineProperty( window, 'camera', { get: () => camera } );
 		Object.defineProperty( window, 'renderer', { get: () => renderer } );
+		window.getTextureMemoryStats = getTextureMemoryStats;
 
 		let oldtime = performance.now() / 1000;
 

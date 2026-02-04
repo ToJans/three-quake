@@ -18,6 +18,7 @@ import { r_worldentity, R_Init as R_Init_rmain, GL_BuildLightmaps as GL_BuildLig
 	cg_hq_tonemapping, cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure,
 	r_lightprobes, r_lightprobes_quality, r_lightprobes_samples
 } from './gl_rmain.js';
+import { r_tex_upscale, r_tex_pbr, r_tex_upscale_filter } from './gl_texture_enhance.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
 import { d_8to24table } from './vid.js';
@@ -281,6 +282,11 @@ export function R_Init() {
 		_Cvar_RegisterVariable( r_lightprobes );
 		_Cvar_RegisterVariable( r_lightprobes_quality );
 		_Cvar_RegisterVariable( r_lightprobes_samples );
+
+		// Texture enhancement system
+		_Cvar_RegisterVariable( r_tex_upscale );
+		_Cvar_RegisterVariable( r_tex_pbr );
+		_Cvar_RegisterVariable( r_tex_upscale_filter );
 
 	}
 
