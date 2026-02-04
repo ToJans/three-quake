@@ -222,6 +222,7 @@ export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '1', true );
 export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true );
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true );
 export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true );
+export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0', false ); // 0=off, 1=SSR only, 2=reflection mask, 3=depth, 4=color, 5=reflectivity
 
 // AO (bit 1)
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '1', true );

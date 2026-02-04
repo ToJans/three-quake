@@ -121,9 +121,9 @@ Reflectivity is determined per-mesh based on texture names and surface type:
 ```
 cg_hq_ssr_debug 0   # Normal rendering
 cg_hq_ssr_debug 1   # Show SSR only
-cg_hq_ssr_debug 2   # Show normals
-cg_hq_ssr_debug 3   # Show depth
-cg_hq_ssr_debug 4   # Show scene color
+cg_hq_ssr_debug 2   # Show reflection mask (alpha channel)
+cg_hq_ssr_debug 3   # Show depth buffer
+cg_hq_ssr_debug 4   # Show scene color buffer
 cg_hq_ssr_debug 5   # Show reflectivity mask
 ```
 
