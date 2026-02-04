@@ -87,9 +87,30 @@ const NET_MAXMESSAGE = 8192;
 const MAX_PENDING_MESSAGES = 100;
 
 // Helper: yield to the macrotask queue so setInterval (game loop) can run.
-// Without this, a tight await loop (resolved promises) floods the microtask queue
-// and starves macrotasks, freezing the game loop entirely.
-function _yieldToMacrotasks(): Promise<void> {
+//
+// reader.read() resolves via microtasks, which means multiple reader loops
+// can cascade without ever yielding to the macrotask queue. This starves the
+// game loop's setInterval callback.
+//
+// Strategy: yield AFTER successfully reading a message, not before. When no
+// data is available, reader.read() blocks naturally — no artificial delay.
+// This keeps latency minimal: messages are read immediately, then we yield.
+//
+// Backpressure: if the game loop isn't consuming messages fast enough
+// (pendingMessages piling up), yield longer to let it catch up.
+function _yieldAfterRead(conn: ClientConnection): Promise<void> {
+	const pending = conn.pendingMessages.length;
+	if (pending > 4) {
+		// Heavy backpressure: game loop is falling behind, back off significantly
+		return new Promise(resolve => setTimeout(resolve, 50));
+	}
+	if (pending > 1) {
+		// Light backpressure: game loop has unprocessed messages
+		return new Promise(resolve => setTimeout(resolve, 10));
+	}
+	// No backpressure: just yield to macrotask queue so game loop can run.
+	// setTimeout(0) gives ~1-4ms on most systems — enough to interleave
+	// with the 50ms game tick.
 	return new Promise(resolve => setTimeout(resolve, 0));
 }
 
@@ -334,15 +355,15 @@ function _startBackgroundReaders(
 				conn.pendingMessages.push({ reliable: true, data: msg.data });
 				conn.lastMessageTime = Date.now();
 
-				// Yield to macrotask queue to prevent microtask starvation.
-				await _yieldToMacrotasks();
-
 				// If messages are piling up, the game loop isn't consuming them
 				if (conn.pendingMessages.length > MAX_PENDING_MESSAGES) {
 					Sys_Printf('Reliable reader: %d pending messages for %s, disconnecting\n', conn.pendingMessages.length, conn.address);
 					conn.connected = false;
 					break;
 				}
+
+				// Yield to macrotask queue after reading so the game loop can run
+				await _yieldAfterRead(conn);
 			}
 		} catch (error) {
 			if (conn.connected) {
@@ -366,15 +387,15 @@ function _startBackgroundReaders(
 				conn.pendingMessages.push({ reliable: false, data: msg.data });
 				conn.lastMessageTime = Date.now();
 
-				// Yield to macrotask queue to prevent microtask starvation.
-				await _yieldToMacrotasks();
-
 				// If messages are piling up, the game loop isn't consuming them
 				if (conn.pendingMessages.length > MAX_PENDING_MESSAGES) {
 					Sys_Printf('Unreliable reader: %d pending messages for %s, disconnecting\n', conn.pendingMessages.length, conn.address);
 					conn.connected = false;
 					break;
 				}
+
+				// Yield to macrotask queue after reading so the game loop can run
+				await _yieldAfterRead(conn);
 			}
 		} catch (error) {
 			if (conn.connected) {
@@ -461,6 +482,10 @@ async function _readExact(
 	while (offset < n) {
 		const { value, done } = await reader.read();
 		if (done) return null;
+
+		// Guard against zero-length reads (can happen during stream closing).
+		// Without this check, offset never advances and we spin forever.
+		if (value.length === 0) return null;
 
 		const bytesToCopy = Math.min(value.length, n - offset);
 		result.set(value.subarray(0, bytesToCopy), offset);
@@ -552,6 +577,17 @@ function _newQSocket(): QSocket | null {
  */
 function _handleConnectionDeath(sock: QSocket, conn: ClientConnection): void {
 	conn.connected = false;
+
+	// Cancel readers to unblock any stuck reader.read() calls in _readExact.
+	// Without this, reader loops can spin indefinitely after the transport closes.
+	try {
+		if (conn.reliableReader) {
+			conn.reliableReader.cancel().catch(() => {});
+		}
+		if (conn.unreliableReader) {
+			conn.unreliableReader.cancel().catch(() => {});
+		}
+	} catch { /* ignore */ }
 
 	// Check if socket is still in pending queue (never assigned to a client)
 	const pendingIdx = pendingConnections.indexOf(sock);
@@ -749,6 +785,16 @@ export function WT_Close(sock: QSocket): void {
 	conn.connected = false;
 
 	try {
+		// Cancel readers first — unblocks any stuck reader.read() in _readExact
+		if (conn.reliableReader) {
+			conn.reliableReader.cancel().catch(() => {});
+			conn.reliableReader = null;
+		}
+		if (conn.unreliableReader) {
+			conn.unreliableReader.cancel().catch(() => {});
+			conn.unreliableReader = null;
+		}
+
 		// Close writers
 		if (conn.reliableWriter) {
 			conn.reliableWriter.close().catch(() => {});
