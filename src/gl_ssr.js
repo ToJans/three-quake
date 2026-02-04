@@ -709,28 +709,78 @@ function computeSSR() {
 
 	// Render only reflective surfaces (those with userData.reflectivity > 0)
 	// These are tagged in gl_rsurf.js based on texture names (water, metal, etc.)
+	// Collect reflective and non-reflective meshes
 	const reflectiveMeshes = [];
+	const nonReflectiveMeshes = [];
 	scene.traverse( function ( object ) {
 
-		if ( object.isMesh && object.visible && object.userData.reflectivity > 0 ) {
+		if ( object.isMesh && object.visible ) {
 
-			reflectiveMeshes.push( {
-				mesh: object,
-				originalMaterial: object.material,
-				reflectivity: object.userData.reflectivity
-			} );
+			if ( object.userData.reflectivity > 0 ) {
+
+				reflectiveMeshes.push( {
+					mesh: object,
+					originalMaterial: object.material,
+					reflectivity: object.userData.reflectivity
+				} );
+
+			} else {
+
+				nonReflectiveMeshes.push( object );
+
+			}
 
 		}
 
 	} );
 
-	// Render each reflective mesh with its reflectivity value
+	// Hide non-reflective meshes
+	for ( const mesh of nonReflectiveMeshes ) {
+
+		mesh.visible = false;
+
+	}
+
+	// Group by reflectivity and render each group
+	const reflectivityGroups = new Map();
 	for ( const item of reflectiveMeshes ) {
 
-		reflectivityMaterial.uniforms.baseReflectivity.value = item.reflectivity;
-		item.mesh.material = reflectivityMaterial;
-		renderer.render( item.mesh, camera );
-		item.mesh.material = item.originalMaterial;
+		const refl = item.reflectivity;
+		if ( ! reflectivityGroups.has( refl ) ) {
+
+			reflectivityGroups.set( refl, [] );
+
+		}
+		reflectivityGroups.get( refl ).push( item );
+
+	}
+
+	for ( const [ reflectivity, meshes ] of reflectivityGroups ) {
+
+		// Swap materials for this group
+		reflectivityMaterial.uniforms.baseReflectivity.value = reflectivity;
+		for ( const item of meshes ) {
+
+			item.mesh.material = reflectivityMaterial;
+
+		}
+
+		// Render reflective meshes
+		renderer.render( scene, camera );
+
+		// Restore materials
+		for ( const item of meshes ) {
+
+			item.mesh.material = item.originalMaterial;
+
+		}
+
+	}
+
+	// Restore visibility of non-reflective meshes
+	for ( const mesh of nonReflectiveMeshes ) {
+
+		mesh.visible = true;
 
 	}
 

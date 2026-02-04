@@ -30,6 +30,7 @@ import {
 } from './bspfile.js';
 import { MAX_QPATH } from './quakedef.js';
 import { gl_texturemode, GL_RegisterTexture } from './glquake.js';
+import { analyzeTexture } from './gl_texture_analysis.js';
 
 // ============================================================================
 // modelgen.h constants
@@ -695,6 +696,27 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha ) {
 	// Note: flipY defaults to false for DataTexture, which is correct for Quake
 	// Quake's UV T=0 at top + texture row 0 at V=0 means no flip is needed
 	texture.needsUpdate = true;
+
+	// Generate derived PBR maps (roughness, normal, reflectivity)
+	// Skip for very small textures (icons, etc.) and transparent textures
+	if ( width >= 16 && height >= 16 && ! alpha ) {
+
+		try {
+
+			const derivedMaps = analyzeTexture( rgba, width, height );
+			texture.userData = texture.userData || {};
+			texture.userData.roughnessMap = derivedMaps.roughnessMap;
+			texture.userData.normalMap = derivedMaps.normalMap;
+			texture.userData.reflectivityMap = derivedMaps.reflectivityMap;
+
+		} catch ( e ) {
+
+			// Silently ignore errors in texture analysis
+			console.warn( '[TextureAnalysis] Failed for', name, e );
+
+		}
+
+	}
 
 	// Register for filter updates when setting changes
 	GL_RegisterTexture( texture );
