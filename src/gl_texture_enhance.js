@@ -1090,7 +1090,7 @@ function generateRoughnessMapData( gray, width, height ) {
 function generateNormalMapData( gray, width, height ) {
 
 	const normals = new Uint8Array( width * height * 4 );
-	const strength = 0.5; // Keep normals subtle to avoid harsh specular highlights
+	const strength = 0.75; // Keep normals subtle to avoid harsh specular highlights
 
 	const sobelX = [ - 1, 0, 1, - 2, 0, 2, - 1, 0, 1 ];
 	const sobelY = [ - 1, - 2, - 1, 0, 0, 0, 1, 2, 1 ];
