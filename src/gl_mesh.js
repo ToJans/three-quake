@@ -356,7 +356,7 @@ are updated in place from a pre-allocated buffer.
 const _castIntBuf = new Int32Array( 1 );
 const _castFloatView = new Float32Array( _castIntBuf.buffer );
 
-export function GL_DrawAliasFrame( paliashdr, posenum, shadedots, shadelight ) {
+export function GL_DrawAliasFrame( paliashdr, posenum, shadedots, shadelight, probeColor ) {
 
 	const verts = paliashdr.posedata[ posenum ];
 	if ( ! verts ) return null;
@@ -487,12 +487,26 @@ export function GL_DrawAliasFrame( paliashdr, posenum, shadedots, shadelight ) {
 
 		const colorArr = cached.colorArray;
 		const lni = cached.lightnormalindices;
+
+		// Get probe color components (default to white if no probe)
+		const pr = probeColor ? probeColor[ 0 ] : 1;
+		const pg = probeColor ? probeColor[ 1 ] : 1;
+		const pb = probeColor ? probeColor[ 2 ] : 1;
+
+		// Normalize probe color so it tints but doesn't darken too much
+		// Find the brightest component and scale to maintain overall brightness
+		const probeMax = Math.max( pr, pg, pb, 0.001 );
+		const probeScale = 1 / probeMax;
+		const tintR = pr * probeScale;
+		const tintG = pg * probeScale;
+		const tintB = pb * probeScale;
+
 		for ( let i = 0; i < cached.vertexCount; i ++ ) {
 
 			const l = shadedots[ lni[ i ] ] * shadelight;
-			colorArr[ i * 3 ] = l;
-			colorArr[ i * 3 + 1 ] = l;
-			colorArr[ i * 3 + 2 ] = l;
+			colorArr[ i * 3 ] = l * tintR;
+			colorArr[ i * 3 + 1 ] = l * tintG;
+			colorArr[ i * 3 + 2 ] = l * tintB;
 
 		}
 
@@ -667,7 +681,7 @@ Caches geometry per (model, pose), materials per (model, skin),
 and reuses mesh objects per entity to minimize per-frame allocations.
 =================
 */
-export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
+export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight, probeColor ) {
 
 	if ( ! paliashdr || ! paliashdr.posedata )
 		return null;
@@ -676,7 +690,7 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	const hasLighting = shadedots && shadelight !== undefined;
 
 	// Get cached geometry (creates template on first call, updates colors in place)
-	const geometry = GL_DrawAliasFrame( paliashdr, posenum, shadedots, shadelight );
+	const geometry = GL_DrawAliasFrame( paliashdr, posenum, shadedots, shadelight, probeColor );
 	if ( ! geometry )
 		return null;
 

@@ -34,3 +34,55 @@ Bloom parameters:
 Tonemapping parameters:
 - `cg_hq_tonemapping_operator` - 0=ACES, 1=Reinhard, 2=Cineon, 3=AgX, 4=Neutral
 - `cg_hq_tonemapping_exposure` - Exposure value (default: 3)
+
+## Light Probe System
+
+Entity lighting uses spherical harmonics (L1 SH) probes placed at BSP leaf centroids.
+Probes capture colored directional lighting from the world and apply it to entities.
+
+### CVars
+
+| CVar | Default | Description |
+|------|---------|-------------|
+| `r_lightprobes` | 1 | Enable/disable light probe system (0/1) |
+| `r_lightprobes_quality` | 2 | Ray quality: 0=low (6 rays), 1=medium (26 rays), 2=high (66 rays) |
+| `r_lightprobes_samples` | 4 | Sample positions per probe (1-8, higher=smoother but slower bake) |
+
+### Features
+
+- **One probe per BSP leaf** - O(1) lookup via Mod_PointInLeaf
+- **L1 Spherical Harmonics** - 4 coefficients per RGB channel = 12 floats per probe
+- **Multi-sample baking** - Samples from multiple positions within each leaf for smoother results
+- **High-quality ray sampling** - Up to 66 uniformly distributed directions (icosphere-based)
+- **Animated lightstyle support** - Flickering lights affect entities in real-time
+- **Colored lighting from liquids**:
+  - **Lava**: Orange-red glow (RGB: 1.0, 0.4, 0.1)
+  - **Slime**: Bright green glow (RGB: 0.2, 0.9, 0.3)
+  - **Water**: Subtle blue tint (RGB: 0.3, 0.5, 0.8)
+  - **Teleporter**: Purple glow (RGB: 0.8, 0.4, 1.0)
+- **Viewmodel lighting** - Weapon uses player's view origin for consistent lighting
+
+### Testing Colored Lighting
+
+Maps with lava/slime for testing:
+- `e1m1` - Has slime pool near the start
+- `e1m5` - "Gloom Keep" has lava areas
+- `e2m6` - "The Dismal Oubliette" has slime
+- `e3m5` - "Wind Tunnels" has lava
+- `e4m1` - "The Sewage System" has slime
+
+Stand near lava or slime and watch your weapon tint orange/green.
+
+### Performance Tuning
+
+For faster map loads, reduce quality:
+```
+r_lightprobes_quality 0   // Fast: 6 rays per sample
+r_lightprobes_samples 1   // Fast: single sample per probe
+```
+
+For best quality:
+```
+r_lightprobes_quality 2   // Best: 66 rays per sample
+r_lightprobes_samples 8   // Best: 8 samples per probe
+```

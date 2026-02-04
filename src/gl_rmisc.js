@@ -15,7 +15,8 @@ import { d_lightstylevalue, r_viewleaf, r_norefresh, r_lightmap,
 	envmap } from './glquake.js';
 import { r_worldentity, R_Init as R_Init_rmain, GL_BuildLightmaps as GL_BuildLightmaps_impl,
 	cg_hq, cg_hq_bloom, cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius,
-	cg_hq_tonemapping, cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure
+	cg_hq_tonemapping, cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure,
+	r_lightprobes, r_lightprobes_quality, r_lightprobes_samples
 } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
@@ -275,6 +276,11 @@ export function R_Init() {
 		_Cvar_RegisterVariable( cg_hq_tonemapping );
 		_Cvar_RegisterVariable( cg_hq_tonemapping_operator );
 		_Cvar_RegisterVariable( cg_hq_tonemapping_exposure );
+
+		// Light probe system
+		_Cvar_RegisterVariable( r_lightprobes );
+		_Cvar_RegisterVariable( r_lightprobes_quality );
+		_Cvar_RegisterVariable( r_lightprobes_samples );
 
 	}
 

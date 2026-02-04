@@ -29,7 +29,12 @@ import {
 	cl_lightstyle
 } from './client.js';
 import { d_lightstylevalue } from './glquake.js';
+import {
+	R_BuildLightProbes, R_UpdateLightProbes, R_ClearLightProbes,
+	R_GetLightProbe, SH_Evaluate, r_lightprobes, r_lightprobes_quality, r_lightprobes_samples
+} from './gl_lightprobe.js';
 export { GL_BuildLightmaps_rsurf as GL_BuildLightmaps };
+export { r_lightprobes, r_lightprobes_quality, r_lightprobes_samples };
 
 //============================================================================
 // glquake.h constants
@@ -310,6 +315,9 @@ export function R_SetupFrame() {
 	}
 
 	R_AnimateLight();
+
+	// Update light probes when lightstyle values change
+	R_UpdateLightProbes();
 
 	r_framecount ++;
 
@@ -613,6 +621,9 @@ let _entityMeshesThisFrame = new Set();
 // Pre-allocated vector for dynamic light distance calculation (avoid per-frame allocation)
 const _dlightDist = [ 0, 0, 0 ];
 
+// Pre-allocated normal vector for probe evaluation (entity's up direction in Quake coords)
+const _entityUpNormal = new Float32Array( [ 0, 0, 1 ] );
+
 function R_DrawAliasModel( e ) {
 
 	if ( ! e || ! e.model ) return;
@@ -625,13 +636,31 @@ function R_DrawAliasModel( e ) {
 	let ambientlight = 0;
 	let shadelight = 0;
 	let shadedots = null;
+	let probeColor = null; // RGB color from light probe [r, g, b] in 0-1 range
 
 	if ( cl && e.origin ) {
 
-		ambientlight = shadelight = R_LightPoint( e.origin, cl );
+		// For viewmodel, use player's view origin for more reliable lighting
+		const isViewmodel = e === cl.viewent;
+		const lightPos = isViewmodel ? r_origin : e.origin;
+
+		ambientlight = shadelight = R_LightPoint( lightPos, cl );
+
+		// Try to get probe lighting for colored ambient
+		if ( r_lightprobes.value && cl.worldmodel ) {
+
+			const probe = R_GetLightProbe( lightPos, cl.worldmodel );
+			if ( probe ) {
+
+				// Evaluate SH at entity's up direction for ambient color
+				probeColor = SH_Evaluate( probe.sh, _entityUpNormal );
+
+			}
+
+		}
 
 		// always give the gun some light
-		if ( e === cl.viewent && ambientlight < 24 )
+		if ( isViewmodel && ambientlight < 24 )
 			ambientlight = shadelight = 24;
 
 		// add dynamic lights to ambient/shade (gl_rmain.c:482-497)
@@ -684,7 +713,7 @@ function R_DrawAliasModel( e ) {
 
 	}
 
-	const mesh = R_DrawAliasModel_mesh( e, paliashdr, shadedots, shadelight );
+	const mesh = R_DrawAliasModel_mesh( e, paliashdr, shadedots, shadelight, probeColor );
 	if ( mesh && scene ) {
 
 		if ( ! _entityMeshesInScene.has( mesh ) ) {
@@ -1089,6 +1118,14 @@ export function R_NewMap() {
 
 	// rebuild lightmaps
 	GL_BuildLightmaps_rsurf();
+
+	// Clear and rebuild light probes
+	R_ClearLightProbes();
+	if ( cl && cl.worldmodel ) {
+
+		R_BuildLightProbes( cl.worldmodel );
+
+	}
 
 }
 
