@@ -99,14 +99,10 @@ void main() {
 `;
 
 // Reflectivity material - outputs surface reflectivity based on:
-// - userData.reflectivity (for water/special surfaces)
-// - World-space normal direction (floors are more reflective)
+// - userData.reflectivity (for water/metal/shiny surfaces)
+// Reflectivity is now set per-mesh based on texture names, not surface orientation.
 const reflectivityVertexShader = /* glsl */`
-varying vec3 vWorldNormal;
-
 void main() {
-	// Transform normal to world space
-	vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
 	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
@@ -114,27 +110,10 @@ void main() {
 const reflectivityFragmentShader = /* glsl */`
 precision highp float;
 
-varying vec3 vWorldNormal;
-uniform float baseReflectivity;    // Per-object base (for water)
-uniform float floorReflectivity;   // Extra reflectivity for floors
-uniform float globalBaseReflectivity; // Minimum for all surfaces (for glass/walls)
+uniform float baseReflectivity; // Per-object reflectivity (from userData.reflectivity)
 
 void main() {
-	vec3 worldNormal = normalize(vWorldNormal);
-
-	// Check if this is a floor (normal pointing up in world space)
-	// In Quake coords: Z is up
-	float upFacing = max(0.0, worldNormal.z);
-
-	// Floors (upFacing > 0.7) get floor reflectivity
-	// Steep angle threshold to avoid walls
-	float floorFactor = smoothstep(0.7, 0.9, upFacing);
-
-	// Combine: global base + floor bonus + per-object base (water)
-	float reflectivity = globalBaseReflectivity + floorFactor * floorReflectivity;
-	reflectivity = max(reflectivity, baseReflectivity);
-
-	gl_FragColor = vec4(reflectivity, reflectivity, reflectivity, 1.0);
+	gl_FragColor = vec4(baseReflectivity, baseReflectivity, baseReflectivity, 1.0);
 }
 `;
 
@@ -396,10 +375,8 @@ void main() {
 // Initialization
 //============================================================================
 
-// SSR parameters for reflectivity
-let ssrFloorReflectivity = 0.5; // How reflective floors are (0-1)
-let ssrWaterReflectivity = 0.8; // How reflective water is (0-1)
-let ssrBaseReflectivity = 0.1; // Base reflectivity for all surfaces (0-1)
+// SSR reflectivity is now set per-mesh via userData.reflectivity in gl_rsurf.js
+// These variables are kept for backward compatibility with cvars but are unused
 
 function createRenderTargets() {
 
@@ -468,9 +445,7 @@ function createMaterials() {
 
 	reflectivityMaterial = new THREE.ShaderMaterial( {
 		uniforms: {
-			baseReflectivity: { value: 0.0 },
-			floorReflectivity: { value: ssrFloorReflectivity },
-			globalBaseReflectivity: { value: ssrBaseReflectivity }
+			baseReflectivity: { value: 0.0 }
 		},
 		vertexShader: reflectivityVertexShader,
 		fragmentShader: reflectivityFragmentShader,
@@ -641,28 +616,11 @@ export function SSR_SetDebugMode( value ) {
 
 }
 
-export function SSR_SetFloorReflectivity( value ) {
-
-	ssrFloorReflectivity = value;
-	if ( reflectivityMaterial ) {
-
-		reflectivityMaterial.uniforms.floorReflectivity.value = value;
-
-	}
-
-}
-
-export function SSR_SetWaterReflectivity( value ) {
-
-	ssrWaterReflectivity = value;
-
-}
-
-export function SSR_SetBaseReflectivity( value ) {
-
-	ssrBaseReflectivity = value;
-
-}
+// These functions are kept for backward compatibility with cvars but are no-ops
+// Reflectivity is now set per-mesh via userData.reflectivity based on texture names
+export function SSR_SetFloorReflectivity( value ) {}
+export function SSR_SetWaterReflectivity( value ) {}
+export function SSR_SetBaseReflectivity( value ) {}
 
 //============================================================================
 // Main render function
@@ -736,21 +694,11 @@ function computeSSR() {
 	scene.overrideMaterial = null;
 
 	// 3. Render reflectivity mask
-	// Uses world-space normals to determine floor reflectivity
-	// Water meshes get high base reflectivity via userData
-	// All surfaces get global base reflectivity (for glass, etc.)
-	reflectivityMaterial.uniforms.floorReflectivity.value = ssrFloorReflectivity;
-	reflectivityMaterial.uniforms.baseReflectivity.value = 0.0;
-	reflectivityMaterial.uniforms.globalBaseReflectivity.value = ssrBaseReflectivity;
-
+	// Only surfaces with userData.reflectivity > 0 are rendered (water, metal, etc.)
+	// All other surfaces remain black (0 reflectivity)
 	renderer.setRenderTarget( reflectivityRenderTarget );
 	renderer.setClearColor( 0x000000, 1 );
 	renderer.clear( true, true, false );
-
-	// First pass: render all surfaces with normal-based reflectivity
-	scene.overrideMaterial = reflectivityMaterial;
-	renderer.render( scene, camera );
-	scene.overrideMaterial = null;
 
 	// Restore visibility of transparent objects (needed for color pass and main render)
 	for ( const object of hiddenObjects ) {
@@ -759,33 +707,30 @@ function computeSSR() {
 
 	}
 
-	// Second pass: render water/reflective surfaces with high base reflectivity
-	// These have userData.reflectivity > 0 set in gl_rsurf.js
-	reflectivityMaterial.uniforms.baseReflectivity.value = ssrWaterReflectivity;
-	reflectivityMaterial.uniforms.floorReflectivity.value = ssrWaterReflectivity; // Water is always reflective
-
-	const waterMeshes = [];
+	// Render only reflective surfaces (those with userData.reflectivity > 0)
+	// These are tagged in gl_rsurf.js based on texture names (water, metal, etc.)
+	const reflectiveMeshes = [];
 	scene.traverse( function ( object ) {
 
 		if ( object.isMesh && object.visible && object.userData.reflectivity > 0 ) {
 
-			waterMeshes.push( { mesh: object, originalMaterial: object.material } );
-			object.material = reflectivityMaterial;
+			reflectiveMeshes.push( {
+				mesh: object,
+				originalMaterial: object.material,
+				reflectivity: object.userData.reflectivity
+			} );
 
 		}
 
 	} );
 
-	if ( waterMeshes.length > 0 ) {
+	// Render each reflective mesh with its reflectivity value
+	for ( const item of reflectiveMeshes ) {
 
-		renderer.render( scene, camera );
-
-		// Restore original materials
-		for ( const item of waterMeshes ) {
-
-			item.mesh.material = item.originalMaterial;
-
-		}
+		reflectivityMaterial.uniforms.baseReflectivity.value = item.reflectivity;
+		item.mesh.material = reflectivityMaterial;
+		renderer.render( item.mesh, camera );
+		item.mesh.material = item.originalMaterial;
 
 	}
 

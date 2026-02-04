@@ -62,6 +62,53 @@ const GL_RGBA = 0x1908;
 const GL_RGBA4 = 0;
 
 //============================================================================
+// Texture reflectivity for SSR
+//============================================================================
+
+/**
+ * Returns reflectivity value (0-1) based on texture name.
+ * Used for SSR (screen-space reflections).
+ *
+ * Quake texture naming conventions:
+ * - *water*, *slime*, *lava* = turbulent liquids (start with *)
+ * - metal*, wmet*, cop* = metal surfaces
+ * - tech*, tlight* = tech/computer panels
+ * - window*, glass* = glass/windows
+ */
+function getTextureReflectivity( texName ) {
+
+	if ( ! texName ) return 0;
+
+	const name = texName.toLowerCase();
+
+	// High reflectivity: metal, tech panels
+	if ( name.startsWith( 'metal' ) ||
+		name.startsWith( 'wmet' ) ||
+		name.startsWith( 'cop' ) ||
+		name.startsWith( 'tech' ) ||
+		name.startsWith( 'tlight' ) ||
+		name.includes( '_metal' ) ) {
+
+		return 0.4;
+
+	}
+
+	// Medium reflectivity: windows, glass, some special surfaces
+	if ( name.startsWith( 'window' ) ||
+		name.startsWith( 'glass' ) ||
+		name.includes( 'chrome' ) ||
+		name.includes( 'shiny' ) ) {
+
+		return 0.6;
+
+	}
+
+	// No reflectivity for everything else (walls, floors, etc.)
+	return 0;
+
+}
+
+//============================================================================
 // Module-level state
 //============================================================================
 
@@ -2275,6 +2322,14 @@ function R_BuildWorldMeshes() {
 		// Name for debugging (texture name + lightmap number)
 		const texName = t.name || '';
 		batchedMesh.name = `world_${texName}_lm${group.lmNum}`;
+
+		// Set reflectivity based on texture name for SSR
+		const reflectivity = getTextureReflectivity( texName );
+		if ( reflectivity > 0 ) {
+
+			batchedMesh.userData.reflectivity = reflectivity;
+
+		}
 
 		// Add each surface's geometry to the batch
 		for ( const surfData of group.surfaceData ) {
