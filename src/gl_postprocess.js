@@ -337,84 +337,10 @@ export function PostProcess_Render() {
 		if ( threeRenderPass ) threeRenderPass.camera = camera;
 		if ( threeGtaoPass ) threeGtaoPass.camera = camera;
 
-		// Exclude transparent objects from GTAO by hiding them during composer render
-		const transparentObjects = [];
-		if ( state.aoEnabled && ! aoDebugMode ) {
-
-			scene.traverse( ( object ) => {
-
-				if ( object.isMesh && object.visible && object.material ) {
-
-					const mat = object.material;
-					if ( mat.transparent || mat.alphaTest > 0 ) {
-
-						object.visible = false;
-						transparentObjects.push( object );
-
-					}
-
-				}
-
-			} );
-
-		}
-
-		// Render opaque objects with postprocessing (GTAO, bloom, tonemapping)
+		// Render entire scene through composer.
+		// Transparent objects (water, particles) are rendered by RenderPass normally.
+		// GTAOPass only affects opaque pixels since transparent objects don't write depth.
 		threeComposer.render();
-
-		// Render transparent objects on top without GTAO
-		if ( transparentObjects.length > 0 ) {
-
-			// Restore visibility
-			for ( const obj of transparentObjects ) {
-
-				obj.visible = true;
-
-			}
-
-			// Render transparent objects directly on top (preserve existing buffer)
-			const autoClear = renderer.autoClear;
-			const autoClearColor = renderer.autoClearColor;
-			const autoClearDepth = renderer.autoClearDepth;
-			const autoClearStencil = renderer.autoClearStencil;
-			renderer.autoClear = false;
-			renderer.autoClearColor = false;
-			renderer.autoClearDepth = false;
-			renderer.autoClearStencil = false;
-
-			// Only render transparent objects by hiding opaque ones
-			const opaqueObjects = [];
-			scene.traverse( ( object ) => {
-
-				if ( object.isMesh && object.visible && object.material ) {
-
-					const mat = object.material;
-					if ( ! mat.transparent && mat.alphaTest <= 0 ) {
-
-						object.visible = false;
-						opaqueObjects.push( object );
-
-					}
-
-				}
-
-			} );
-
-			renderer.setRenderTarget( null ); // Render to screen
-			renderer.render( scene, camera );
-
-			// Restore all
-			renderer.autoClear = autoClear;
-			renderer.autoClearColor = autoClearColor;
-			renderer.autoClearDepth = autoClearDepth;
-			renderer.autoClearStencil = autoClearStencil;
-			for ( const obj of opaqueObjects ) {
-
-				obj.visible = true;
-
-			}
-
-		}
 
 		return true;
 

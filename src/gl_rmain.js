@@ -215,7 +215,7 @@ export const gl_max_size = new cvar_t( 'gl_max_size', '1024' );
 // Individual cvars: 0=use cg_hq bitmask, 1=force on, -1=force off
 //============================================================================
 
-export const cg_hq = new cvar_t( 'cg_hq', '15', true ); // 15 = all on
+export const cg_hq = new cvar_t( 'cg_hq', '12', true ); // 12 = Bloom + Tonemapping (SSR disabled, AO has issues with sprites)
 
 // SSR (bit 0)
 export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '1', true );
@@ -782,11 +782,11 @@ function R_DrawSpriteModel( e ) {
 		let material = _spriteMaterialCache.get( texture );
 		if ( ! material ) {
 
+			// Use alphaTest without transparent for cutout rendering
+			// This renders in the opaque queue and works better with postprocessing
 			material = new THREE.MeshBasicMaterial( {
 				map: texture,
-				transparent: true,
 				alphaTest: 0.5,
-				depthWrite: false,
 				side: THREE.DoubleSide
 			} );
 			_spriteMaterialCache.set( texture, material );
@@ -802,11 +802,11 @@ function R_DrawSpriteModel( e ) {
 		let material = _spriteMaterialCache.get( texture );
 		if ( ! material ) {
 
+			// Use alphaTest without transparent for cutout rendering
+			// This renders in the opaque queue and works better with postprocessing
 			material = new THREE.MeshBasicMaterial( {
 				map: texture,
-				transparent: true,
 				alphaTest: 0.5,
-				depthWrite: false,
 				side: THREE.DoubleSide
 			} );
 			_spriteMaterialCache.set( texture, material );
