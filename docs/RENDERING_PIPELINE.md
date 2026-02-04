@@ -47,13 +47,15 @@ The postprocessing system uses Three.js EffectComposer with a dynamic pass chain
 
 ### Pass Chain
 
-**Normal Mode** (all effects enabled):
+**Normal Mode** (effects enabled):
 ```
-RenderPass → GTAOPass → SSRPass → BloomPass → OutputPass
-     │            │          │         │           │
-  Scene      Ambient    Reflections  Glow    Tonemapping
-  render     occlusion
+RenderPass → GTAOPass → BloomPass → OutputPass → Transparent Objects
+     │            │          │           │              │
+  Scene      Ambient      Glow     Tonemapping    Sprites/Water
+  render     occlusion                            (no postprocessing)
 ```
+
+**Note:** SSR is currently disabled. Transparent objects are rendered separately after postprocessing.
 
 **Debug Mode** (aoDebug 2-4):
 ```
@@ -95,9 +97,30 @@ applyParameterChanges(state);
 
 ## SSR (Screen-Space Reflections)
 
-### Reflectivity System
+**⚠️ SSR IS CURRENTLY DISABLED**
 
-Reflectivity is determined per-mesh based on texture names and surface type:
+SSR doesn't work due to Quake's custom camera matrix setup:
+
+1. **Three.js SSRPass** requires a `groundReflector` (ReflectorForSSRPass) which expects a standard Three.js camera with normal position/quaternion/scale properties. Quake uses `matrixAutoUpdate = false` and manually sets `matrixWorld`/`matrixWorldInverse`.
+
+2. **Custom gl_ssr.js** also has issues with the camera's view-space calculations.
+
+### Failed Approaches
+
+- **SSRPass with groundReflector**: Depth buffer always white, reflections not computed
+- **Positioning reflector at water level**: Coordinate system mismatch (Quake Z-up vs Three.js Y-up)
+- **Custom SSR ray marching**: Camera matrix incompatibilities
+
+### Future Work
+
+To enable SSR, either:
+1. Modify camera setup to use standard Three.js transforms
+2. Write custom SSR that accounts for Quake's coordinate system and camera matrix
+3. Use a different reflection technique (planar reflections, cube maps)
+
+### Reflectivity System (for future SSR)
+
+Reflectivity is tagged per-mesh based on texture names:
 
 | Surface Type | Reflectivity | Source |
 |--------------|--------------|--------|
@@ -105,23 +128,6 @@ Reflectivity is determined per-mesh based on texture names and surface type:
 | Metal textures (tech*, tlight*, metal*, etc.) | 0.4 | `getTextureReflectivity()` |
 | Glass/Window textures | 0.6 | `getTextureReflectivity()` |
 | Other surfaces | 0 | Not rendered in reflectivity pass |
-
-### SSR Render Passes
-
-1. **Depth pass** - Linear depth buffer
-2. **Normal pass** - View-space normals
-3. **Reflectivity pass** - Only reflective surfaces (userData.reflectivity > 0)
-4. **Color pass** - Full scene color
-5. **SSR pass** - Ray marching for reflections
-6. **Blur pass** - Smooth SSR output
-7. **Composite pass** - Blend SSR with scene
-
-### SSR Debug Modes
-
-```
-Note: SSR debug modes were removed as they used a separate custom SSR
-implementation that didn't reflect the actual Three.js SSRPass behavior.
-```
 
 ---
 
@@ -204,6 +210,84 @@ The `gl_texture_analysis.js` module generates PBR-compatible maps from Quake tex
 
 ---
 
+## Coordinate System
+
+Quake and Three.js use different coordinate conventions:
+
+| Axis | Quake | Three.js |
+|------|-------|----------|
+| X | Forward | Right |
+| Y | Left | Up |
+| Z | **Up** | Backward |
+
+The camera is set up to work in Quake's coordinate space:
+```javascript
+camera.matrixAutoUpdate = false;
+camera.matrixWorld.copy( m );
+camera.matrixWorldInverse.copy( m ).invert();
+```
+
+**Implications:**
+- Water surfaces are horizontal in the XY plane (Z is vertical)
+- Reflector planes for SSR would need to be in XY plane, not XZ
+- `mesh.position.z` is the vertical position, not `mesh.position.y`
+
+---
+
+## Transparent Objects and GTAO
+
+**Problem:** GTAOPass computes ambient occlusion for ALL meshes, including transparent ones (sprites, water, particles). This causes black areas where transparency should be.
+
+**Solution:** Two-pass rendering:
+
+```javascript
+// 1. Hide transparent objects
+scene.traverse((object) => {
+    if (object.material?.transparent || object.material?.alphaTest > 0) {
+        object.visible = false;
+        transparentObjects.push(object);
+    }
+});
+
+// 2. Render opaque with postprocessing (GTAO, bloom, tonemapping)
+threeComposer.render();
+
+// 3. Restore transparent, hide opaque
+for (const obj of transparentObjects) obj.visible = true;
+// ... hide opaque objects ...
+
+// 4. Render transparent on top WITHOUT clearing buffer
+renderer.autoClear = false;
+renderer.autoClearColor = false;
+renderer.autoClearDepth = false;
+renderer.setRenderTarget(null);
+renderer.render(scene, camera);
+```
+
+**Key points:**
+- Transparent objects bypass GTAO entirely
+- Must disable ALL autoClear flags to preserve the postprocessed frame
+- `renderer.setRenderTarget(null)` ensures rendering to screen
+
+---
+
+## GTAO Output Modes
+
+The GTAOPass has different output modes. **Use the correct one:**
+
+| Mode | Constant | Description |
+|------|----------|-------------|
+| Default | `GTAOPass.OUTPUT.Default` | **USE THIS** - Blends AO with scene |
+| Diffuse | `GTAOPass.OUTPUT.Diffuse` | Scene color only |
+| Depth | 2 | Depth buffer visualization |
+| Normal | 3 | Normal buffer visualization |
+| AO | 4 | Raw AO buffer |
+| Denoise | `GTAOPass.OUTPUT.Denoise` | Denoised AO only (NOT blended) |
+
+**Common mistake:** Using `OUTPUT.Denoise` instead of `OUTPUT.Default` shows only the AO buffer, not the blended result.
+
+---
+
 ## Three.js Shader Gotchas
 
 ### Reserved Uniform Names
@@ -283,6 +367,13 @@ When a post-process effect shows black screen:
 5. **Check pass chain** - Verify passes are added in correct order
 6. **Check structural changes** - Ensure reinit happens when needed
 7. **Check render targets** - Verify textures are created and sized correctly
+
+When transparent objects (sprites, water) show black areas:
+
+8. **Check GTAO exclusion** - Transparent objects must be hidden during GTAO pass
+9. **Check autoClear flags** - All must be false when rendering transparent on top
+10. **Check GTAO output mode** - Use `OUTPUT.Default`, not `OUTPUT.Denoise`
+11. **Verify two-pass rendering** - Opaque with postprocessing, then transparent without
 
 ---
 

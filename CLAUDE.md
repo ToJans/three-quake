@@ -33,10 +33,12 @@ bun run dev  # Starts server on http://localhost:8080
 
 Enable/disable effects:
 - `cg_hq` - Bitmask: 1=SSR, 2=AO, 4=Bloom, 8=Tonemapping (15=all)
-- `cg_hq_ssr` - Screen-space reflections (0/1)
+- `cg_hq_ssr` - Screen-space reflections (0/1) **CURRENTLY DISABLED**
 - `cg_hq_ao` - Ambient occlusion (0/1)
 - `cg_hq_bloom` - Bloom effect (0/1)
 - `cg_hq_tonemapping` - Tonemapping (0/1)
+
+**Note:** SSR is currently disabled due to incompatibility with Quake's custom camera matrix setup. Both Three.js SSRPass (requires groundReflector) and the custom gl_ssr.js have issues with the non-standard camera configuration.
 
 AO parameters:
 - `cg_hq_ao_radius` - Sampling radius in Quake units (default: 80)
