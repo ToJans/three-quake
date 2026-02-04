@@ -23,7 +23,7 @@ import { QuakeBloomPass } from './gl_bloom_pass.js';
 import { renderer, vid, VID_AddResizeCallback } from './vid.js';
 import { scene, camera, cg_hq, cg_hq_ssr, cg_hq_ao, cg_hq_bloom, cg_hq_tonemapping } from './gl_rmain.js';
 import {
-	cg_hq_ao_radius, cg_hq_ao_intensity,
+	cg_hq_ao_radius, cg_hq_ao_intensity, cg_hq_ao_debug,
 	cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius,
 	cg_hq_ssr_maxdistance, cg_hq_ssr_thickness, cg_hq_ssr_intensity,
 	cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure
@@ -50,55 +50,261 @@ let threeBloomPass = null;
 let threeOutputPass = null;
 let threeInitialized = false;
 
+// Track last cvar values to detect changes requiring reinit
+let lastCvarState = null;
+
+//============================================================================
+// Cvar state tracking
+//============================================================================
+
+function getCvarState() {
+
+	const hq = cg_hq.value | 0;
+
+	return {
+		hq,
+		// SSR
+		ssr: cg_hq_ssr.value | 0,
+		ssrMaxDistance: cg_hq_ssr_maxdistance.value | 0,
+		ssrThickness: cg_hq_ssr_thickness.value | 0,
+		ssrIntensity: parseFloat( cg_hq_ssr_intensity.value ) || 1.0,
+		// AO
+		ao: cg_hq_ao.value | 0,
+		aoRadius: parseFloat( cg_hq_ao_radius.value ) || 32,
+		aoIntensity: parseFloat( cg_hq_ao_intensity.value ) || 1.0,
+		aoDebug: cg_hq_ao_debug.value | 0,
+		// Bloom
+		bloom: cg_hq_bloom.value | 0,
+		bloomThreshold: parseFloat( cg_hq_bloom_threshold.value ) || 0.5,
+		bloomIntensity: parseFloat( cg_hq_bloom_intensity.value ) || 0.5,
+		bloomRadius: parseFloat( cg_hq_bloom_radius.value ) || 1.0,
+		// Tonemapping
+		tonemapping: cg_hq_tonemapping.value | 0,
+		tonemappingOperator: cg_hq_tonemapping_operator.value | 0,
+		tonemappingExposure: parseFloat( cg_hq_tonemapping_exposure.value ) || 1.0,
+		// Computed enabled states (used for structural decisions)
+		ssrEnabled: ( hq & 1 ) !== 0 || ( cg_hq_ssr.value | 0 ) === 1,
+		aoEnabled: ( hq & 2 ) !== 0 || ( cg_hq_ao.value | 0 ) === 1,
+		bloomEnabled: ( hq & 4 ) !== 0 || ( cg_hq_bloom.value | 0 ) === 1,
+		tonemappingEnabled: ( hq & 8 ) !== 0 || ( cg_hq_tonemapping.value | 0 ) === 1
+	};
+
+}
+
+/**
+ * Check if structural changes require reinit (pass chain changes).
+ * Parameter-only changes can be applied without reinit.
+ */
+function needsReinit( newState ) {
+
+	if ( ! lastCvarState ) return true;
+
+	// Structural changes that require rebuilding the pass chain:
+	// - aoDebug mode change (different pass chain for debug vs normal)
+	// - Any effect being enabled/disabled
+	const structuralKeys = [
+		'aoDebug', 'ssrEnabled', 'aoEnabled', 'bloomEnabled', 'tonemappingEnabled'
+	];
+
+	for ( const key of structuralKeys ) {
+
+		if ( newState[ key ] !== lastCvarState[ key ] ) {
+
+			console.log( '[PostProcess] structural change:', key, lastCvarState[ key ], '->', newState[ key ] );
+			return true;
+
+		}
+
+	}
+
+	return false;
+
+}
+
+/**
+ * Apply parameter changes without reinit.
+ */
+function applyParameterChanges( state ) {
+
+	// AO parameters
+	if ( threeGtaoPass ) {
+
+		threeGtaoPass.updateGtaoMaterial( {
+			radius: state.aoRadius,
+			scale: state.aoIntensity,
+			thickness: 10.0,
+			distanceExponent: 2.0,
+			distanceFallOff: 1.0,
+			screenSpaceRadius: false
+		} );
+
+	}
+
+	// SSR parameters
+	if ( threeSsrPass ) {
+
+		threeSsrPass.maxDistance = state.ssrMaxDistance / 4000;
+		threeSsrPass.thickness = state.ssrThickness / 1000;
+		threeSsrPass.opacity = state.ssrIntensity;
+
+	}
+
+	// Bloom parameters
+	if ( threeBloomPass ) {
+
+		threeBloomPass.threshold = state.bloomThreshold;
+		threeBloomPass.intensity = state.bloomIntensity;
+		threeBloomPass.radius = state.bloomRadius;
+
+	}
+
+	// Tonemapping parameters
+	if ( state.tonemappingEnabled ) {
+
+		renderer.toneMapping = TONE_MAPPING_OPERATORS[ state.tonemappingOperator ] || THREE.ACESFilmicToneMapping;
+		renderer.toneMappingExposure = state.tonemappingExposure;
+
+	}
+
+	lastCvarState = { ...state };
+
+}
 
 //============================================================================
 // Initialize Three.js postprocessing
 //============================================================================
 
-function initThreeJS() {
+function initThreeJS( state ) {
 
-	if ( threeInitialized || ! renderer || ! scene || ! camera ) return;
+	if ( ! renderer || ! scene || ! camera ) return;
+
+	// Dispose existing composer if reinitializing
+	if ( threeComposer ) {
+
+		threeComposer.dispose();
+		threeComposer = null;
+
+	}
+
+	// Clear pass references
+	threeRenderPass = null;
+	threeGtaoPass = null;
+	threeSsrPass = null;
+	threeBloomPass = null;
+	threeOutputPass = null;
 
 	const width = vid.width || window.innerWidth;
 	const height = vid.height || window.innerHeight;
 
 	threeComposer = new EffectComposer( renderer );
 
-	// Render pass
+	// AO debug mode: 2=Depth, 3=Normal, 4=AO (raw debug visualizations)
+	// When in debug mode, we want GTAO to render directly to screen
+	const aoDebugMode = state.aoDebug >= 2 && state.aoDebug <= 4;
+
+	// Render pass - always first
 	threeRenderPass = new RenderPass( scene, camera );
 	threeComposer.addPass( threeRenderPass );
 
-	// GTAO pass
-	threeGtaoPass = new GTAOPass( scene, camera, width, height );
-	threeGtaoPass.output = GTAOPass.OUTPUT.Denoise;
-	threeGtaoPass.enabled = false;
-	threeGtaoPass.blendIntensity = 1.0;
-	threeComposer.addPass( threeGtaoPass );
+	if ( aoDebugMode ) {
 
-	// SSR pass
-	threeSsrPass = new SSRPass( {
-		renderer, scene, camera, width, height,
-		groundReflector: null,
-		selects: null
-	} );
-	threeSsrPass.enabled = false;
-	threeComposer.addPass( threeSsrPass );
+		// DEBUG MODE: Only GTAOPass, renders directly to screen
+		// No other passes - debug output goes straight to screen
+		threeGtaoPass = new GTAOPass( scene, camera, width, height );
+		threeGtaoPass.output = state.aoDebug; // 2=Depth, 3=Normal, 4=AO
+		threeGtaoPass.enabled = true;
+		threeGtaoPass.renderToScreen = true; // Render directly to screen
+		threeGtaoPass.updateGtaoMaterial( {
+			radius: state.aoRadius,
+			scale: state.aoIntensity,
+			thickness: 10.0,
+			distanceExponent: 2.0,
+			distanceFallOff: 1.0,
+			screenSpaceRadius: false
+		} );
+		threeComposer.addPass( threeGtaoPass );
+		console.log( '[PostProcess] DEBUG MODE: GTAO output=', state.aoDebug, '(2=Depth, 3=Normal, 4=AO)' );
 
-	// Custom Quake bloom pass (values will be overridden by cvars in updateThreeParams)
-	const resolution = new THREE.Vector2( width, height );
-	threeBloomPass = new QuakeBloomPass( resolution );
-	threeBloomPass.enabled = false;
-	threeComposer.addPass( threeBloomPass );
+	} else {
 
-	// Output pass (tonemapping)
-	threeOutputPass = new OutputPass();
-	threeComposer.addPass( threeOutputPass );
+		// NORMAL MODE: Full pass chain with all enabled effects
+
+		// GTAO pass - blends AO with scene
+		if ( state.aoEnabled ) {
+
+			threeGtaoPass = new GTAOPass( scene, camera, width, height );
+			// Use Denoise output (5) for blended AO, or Default (0) if aoDebug is 5
+			threeGtaoPass.output = state.aoDebug === 5 ? GTAOPass.OUTPUT.Denoise : GTAOPass.OUTPUT.Denoise;
+			threeGtaoPass.enabled = true;
+			threeGtaoPass.blendIntensity = 1.0;
+			threeGtaoPass.updateGtaoMaterial( {
+				radius: state.aoRadius,
+				scale: state.aoIntensity,
+				thickness: 10.0,
+				distanceExponent: 2.0,
+				distanceFallOff: 1.0,
+				screenSpaceRadius: false
+			} );
+			threeComposer.addPass( threeGtaoPass );
+			console.log( '[PostProcess] GTAO: enabled, radius=', state.aoRadius, 'intensity=', state.aoIntensity );
+
+		}
+
+		// SSR pass
+		if ( state.ssrEnabled ) {
+
+			threeSsrPass = new SSRPass( {
+				renderer, scene, camera, width, height,
+				groundReflector: null,
+				selects: null
+			} );
+			threeSsrPass.enabled = true;
+			threeSsrPass.maxDistance = state.ssrMaxDistance / 4000;
+			threeSsrPass.thickness = state.ssrThickness / 1000;
+			threeSsrPass.opacity = state.ssrIntensity;
+			threeComposer.addPass( threeSsrPass );
+			console.log( '[PostProcess] SSR: enabled' );
+
+		}
+
+		// Bloom pass
+		if ( state.bloomEnabled ) {
+
+			const resolution = new THREE.Vector2( width, height );
+			threeBloomPass = new QuakeBloomPass( resolution );
+			threeBloomPass.enabled = true;
+			threeBloomPass.threshold = state.bloomThreshold;
+			threeBloomPass.intensity = state.bloomIntensity;
+			threeBloomPass.radius = state.bloomRadius;
+			threeComposer.addPass( threeBloomPass );
+			console.log( '[PostProcess] Bloom: enabled' );
+
+		}
+
+		// Output pass (tonemapping) - always last in normal mode
+		threeOutputPass = new OutputPass();
+		threeComposer.addPass( threeOutputPass );
+
+		// Apply tonemapping settings to renderer
+		if ( state.tonemappingEnabled ) {
+
+			renderer.toneMapping = TONE_MAPPING_OPERATORS[ state.tonemappingOperator ] || THREE.ACESFilmicToneMapping;
+			renderer.toneMappingExposure = state.tonemappingExposure;
+
+		} else {
+
+			renderer.toneMapping = THREE.NoToneMapping;
+
+		}
+		console.log( '[PostProcess] Tonemapping:', state.tonemappingEnabled ? 'enabled' : 'disabled' );
+
+	}
 
 	threeInitialized = true;
-	console.log( '[PostProcess] Three.js mode initialized' );
+	lastCvarState = { ...state };
+	console.log( '[PostProcess] Initialized (debug mode:', aoDebugMode, ')' );
 
 }
-
 
 //============================================================================
 // Resize handler
@@ -118,92 +324,11 @@ function PostProcess_Resize( width, height ) {
 }
 
 //============================================================================
-// Update effect parameters
-//============================================================================
-
-function updateThreeParams() {
-
-	const hqValue = cg_hq.value | 0;
-	const ssrEnabled = ( hqValue & 1 ) !== 0;
-	const aoEnabled = ( hqValue & 2 ) !== 0;
-	const bloomEnabled = ( hqValue & 4 ) !== 0;
-
-	const ssrForce = cg_hq_ssr.value | 0;
-	const aoForce = cg_hq_ao.value | 0;
-	const bloomForce = cg_hq_bloom.value | 0;
-
-	if ( threeSsrPass ) {
-
-		threeSsrPass.enabled = ssrForce === 1 || ( ssrForce === 0 && ssrEnabled );
-		threeSsrPass.maxDistance = ( cg_hq_ssr_maxdistance.value | 0 ) / 4000;
-		threeSsrPass.thickness = ( cg_hq_ssr_thickness.value | 0 ) / 1000;
-		threeSsrPass.opacity = parseFloat( cg_hq_ssr_intensity.value ) || 1.0;
-
-	}
-
-	if ( threeGtaoPass ) {
-
-		const wasEnabled = threeGtaoPass.enabled;
-		threeGtaoPass.enabled = aoForce === 1 || ( aoForce === 0 && aoEnabled );
-		if ( wasEnabled !== threeGtaoPass.enabled ) {
-
-			console.log( '[AO] enabled:', threeGtaoPass.enabled, '(aoForce:', aoForce, 'aoEnabled:', aoEnabled, ')' );
-
-		}
-		// GTAO radius is in world units - Quake scale needs ~0.5-2.0
-		// scale controls AO intensity (1.0 = full strength)
-		const aoRadius = parseFloat( cg_hq_ao_radius.value ) || 0.5;
-		const aoScale = parseFloat( cg_hq_ao_intensity.value ) || 1.0;
-		threeGtaoPass.updateGtaoMaterial( {
-			radius: aoRadius,
-			scale: aoScale,
-			thickness: 1.0,
-			distanceExponent: 1.0,
-			distanceFallOff: 1.0
-		} );
-
-	}
-
-	if ( threeBloomPass ) {
-
-		threeBloomPass.enabled = bloomForce === 1 || ( bloomForce === 0 && bloomEnabled );
-		threeBloomPass.threshold = parseFloat( cg_hq_bloom_threshold.value ) || 0.5;
-		threeBloomPass.intensity = parseFloat( cg_hq_bloom_intensity.value ) || 0.5;
-		threeBloomPass.radius = parseFloat( cg_hq_bloom_radius.value ) || 1.0;
-
-	}
-
-	// Tonemapping - applied via renderer settings (OutputPass reads from renderer)
-	const tonemappingEnabled = ( hqValue & 8 ) !== 0;
-	const tonemappingForce = cg_hq_tonemapping.value | 0;
-	const tonemappingOn = tonemappingForce === 1 || ( tonemappingForce === 0 && tonemappingEnabled );
-
-	if ( renderer ) {
-
-		if ( tonemappingOn ) {
-
-			const operatorIndex = ( cg_hq_tonemapping_operator.value | 0 );
-			renderer.toneMapping = TONE_MAPPING_OPERATORS[ operatorIndex ] || THREE.ACESFilmicToneMapping;
-			renderer.toneMappingExposure = parseFloat( cg_hq_tonemapping_exposure.value ) || 1.0;
-
-		} else {
-
-			renderer.toneMapping = THREE.NoToneMapping;
-
-		}
-
-	}
-
-}
-
-
-//============================================================================
 // Public init
 //============================================================================
 
 export function PostProcess_Init() {
 
-	initThreeJS();
 	VID_AddResizeCallback( PostProcess_Resize );
 
 }
@@ -214,29 +339,33 @@ export function PostProcess_Init() {
 
 export function PostProcess_Render() {
 
-	// Check what's enabled (for early return - any effect needs postprocessing)
-	const hqValue = cg_hq.value | 0;
-	const ssrWanted = ( hqValue & 1 ) !== 0 || ( cg_hq_ssr.value | 0 ) === 1;
-	const aoWanted = ( hqValue & 2 ) !== 0 || ( cg_hq_ao.value | 0 ) === 1;
-	const bloomWanted = ( hqValue & 4 ) !== 0 || ( cg_hq_bloom.value | 0 ) === 1;
-	const tonemappingWanted = ( hqValue & 8 ) !== 0 || ( cg_hq_tonemapping.value | 0 ) === 1;
+	// Get current cvar state
+	const state = getCvarState();
 
-	if ( ! ssrWanted && ! aoWanted && ! bloomWanted && ! tonemappingWanted ) {
+	// AO debug mode always needs postprocessing (even if AO itself is disabled)
+	const aoDebugMode = state.aoDebug >= 2 && state.aoDebug <= 4;
+
+	// Check if any effect is wanted (for early return)
+	if ( ! aoDebugMode && ! state.ssrEnabled && ! state.aoEnabled && ! state.bloomEnabled && ! state.tonemappingEnabled ) {
 
 		return false;
 
 	}
 
-	// Use Three.js postprocessing
-	if ( ! threeInitialized ) {
+	// Check if structural changes require reinit
+	if ( ! threeInitialized || needsReinit( state ) ) {
 
-		initThreeJS();
+		initThreeJS( state );
+
+	} else {
+
+		// Apply parameter-only changes without reinit
+		applyParameterChanges( state );
 
 	}
 
 	if ( threeComposer ) {
 
-		updateThreeParams();
 		if ( threeRenderPass ) threeRenderPass.camera = camera;
 		if ( threeSsrPass ) threeSsrPass.camera = camera;
 		if ( threeGtaoPass ) threeGtaoPass.camera = camera;
@@ -258,5 +387,6 @@ export function PostProcess_Dispose() {
 	if ( threeComposer ) threeComposer.dispose();
 	threeComposer = null;
 	threeInitialized = false;
+	lastCvarState = null;
 
 }

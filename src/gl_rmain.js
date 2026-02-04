@@ -218,24 +218,25 @@ export const gl_max_size = new cvar_t( 'gl_max_size', '1024' );
 export const cg_hq = new cvar_t( 'cg_hq', '15', true ); // 15 = all on
 
 // SSR (bit 0)
-export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '0', true );
+export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '1', true );
 export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true );
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true );
 export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true );
 
 // AO (bit 1)
-export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '0', true );
-export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '0.5', true );
+export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '1', true );
+export const cg_hq_ao_radius = new cvar_t( 'cg_hq_ao_radius', '80', true ); // Quake units (~2m)
 export const cg_hq_ao_intensity = new cvar_t( 'cg_hq_ao_intensity', '1.0', true );
+export const cg_hq_ao_debug = new cvar_t( 'cg_hq_ao_debug', '0', false ); // 0=off, 2=depth, 3=normal, 4=AO, 5=denoise
 
 // Bloom (bit 2)
-export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '0', true );
+export const cg_hq_bloom = new cvar_t( 'cg_hq_bloom', '1', true );
 export const cg_hq_bloom_threshold = new cvar_t( 'cg_hq_bloom_threshold', '0.15', true );
 export const cg_hq_bloom_intensity = new cvar_t( 'cg_hq_bloom_intensity', '0.7', true );
 export const cg_hq_bloom_radius = new cvar_t( 'cg_hq_bloom_radius', '0.3', true );
 
 // Tonemapping (bit 3)
-export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '0', true );
+export const cg_hq_tonemapping = new cvar_t( 'cg_hq_tonemapping', '1', true );
 export const cg_hq_tonemapping_operator = new cvar_t( 'cg_hq_tonemapping_operator', '3', true ); // 3 = AgX
 export const cg_hq_tonemapping_exposure = new cvar_t( 'cg_hq_tonemapping_exposure', '3', true );
 
