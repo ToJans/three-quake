@@ -39,7 +39,7 @@ import { SV_StartSound, SV_StartParticle } from './sv_main.js';
 import { Cbuf_AddText } from './cmd.js';
 import { Cvar_VariableValue, Cvar_Set } from './cvar.js';
 import { FL_ONGROUND, FL_FLY, FL_SWIM, svs, ss_active } from './server.js';
-import { Mod_PointInLeaf, Mod_LeafPVS } from './gl_model.js';
+import { Mod_ForName, Mod_PointInLeaf, Mod_LeafPVS } from './gl_model.js';
 import {
 	svc_sound, svc_print, svc_centerprint, svc_stufftext, svc_lightstyle,
 	svc_spawnstatic, svc_spawnstaticsound,
@@ -1002,7 +1002,7 @@ function PF_precache_model() {
 			if ( sv.model_precache[ i ] == null ) {
 
 				sv.model_precache[ i ] = s;
-				// sv.models[i] = Mod_ForName(s, true);
+				sv.models[ i ] = Mod_ForName( s, true );
 				return;
 
 			}

@@ -19,13 +19,18 @@ export function WT_SetMapCallbacks(
 export function WT_SetMaxClientsCallback(_setMaxClients: (maxClients: number) => void): void {}
 
 // Connection tracking
+// Two QUIC bidirectional streams per connection:
+// Stream 1 (reliable) for signon data, stringcmds, name/frag changes
+// Stream 2 (unreliable) for entity updates, clientdata, clc_move
 interface ClientConnection {
 	id: number;
 	webTransport: WebTransport;
 	bidirectionalStream: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> } | null;
 	reliableWriter: WritableStreamDefaultWriter<Uint8Array> | null;
 	reliableReader: ReadableStreamDefaultReader<Uint8Array> | null;
-	datagramWriter: WritableStreamDefaultWriter<Uint8Array> | null;  // Cached datagram writer
+	unreliableStream: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> } | null;
+	unreliableWriter: WritableStreamDefaultWriter<Uint8Array> | null;
+	unreliableReader: ReadableStreamDefaultReader<Uint8Array> | null;
 	pendingMessages: Array<{ reliable: boolean; data: Uint8Array }>;
 	connected: boolean;
 	address: string;
@@ -76,6 +81,38 @@ let nextConnectionId = 1;
 let net_driverlevel = 0;
 
 const NET_MAXMESSAGE = 8192;
+
+// Maximum pending messages per connection before we consider it dead/flooding.
+// The game loop consumes messages at 20Hz — if hundreds pile up, something is wrong.
+const MAX_PENDING_MESSAGES = 100;
+
+// Helper: yield to the macrotask queue so setInterval (game loop) can run.
+//
+// reader.read() resolves via microtasks, which means multiple reader loops
+// can cascade without ever yielding to the macrotask queue. This starves the
+// game loop's setInterval callback.
+//
+// Strategy: yield AFTER successfully reading a message, not before. When no
+// data is available, reader.read() blocks naturally — no artificial delay.
+// This keeps latency minimal: messages are read immediately, then we yield.
+//
+// Backpressure: if the game loop isn't consuming messages fast enough
+// (pendingMessages piling up), yield longer to let it catch up.
+function _yieldAfterRead(conn: ClientConnection): Promise<void> {
+	const pending = conn.pendingMessages.length;
+	if (pending > 4) {
+		// Heavy backpressure: game loop is falling behind, back off significantly
+		return new Promise(resolve => setTimeout(resolve, 50));
+	}
+	if (pending > 1) {
+		// Light backpressure: game loop has unprocessed messages
+		return new Promise(resolve => setTimeout(resolve, 10));
+	}
+	// No backpressure: just yield to macrotask queue so game loop can run.
+	// setTimeout(0) gives ~1-4ms on most systems — enough to interleave
+	// with the 50ms game tick.
+	return new Promise(resolve => setTimeout(resolve, 0));
+}
 
 // Callback for socket allocation (injected from game_server.js)
 // This allows using the shared socket pool from net_main.js
@@ -235,7 +272,9 @@ async function _handleWebTransportSession(wt: WebTransport, address: string): Pr
 			bidirectionalStream: null,
 			reliableWriter: null,
 			reliableReader: null,
-			datagramWriter: null,  // Cached datagram writer - initialized on first send
+			unreliableStream: null,
+			unreliableWriter: null,
+			unreliableReader: null,
 			pendingMessages: [],
 			connected: true,
 			address: address,
@@ -245,15 +284,28 @@ async function _handleWebTransportSession(wt: WebTransport, address: string): Pr
 		// Accept the first bidirectional stream (reliable channel)
 		const streamReader = wt.incomingBidirectionalStreams.getReader();
 		const { value: stream, done } = await streamReader.read();
-		streamReader.releaseLock();
 
 		if (done || !stream) {
+			streamReader.releaseLock();
 			wt.close();
 			return;
 		}
 		clientConn.bidirectionalStream = stream;
 		clientConn.reliableWriter = stream.writable.getWriter();
 		clientConn.reliableReader = stream.readable.getReader();
+
+		// Accept the second bidirectional stream (unreliable channel)
+		const { value: stream2, done: done2 } = await streamReader.read();
+		streamReader.releaseLock();
+
+		if (done2 || !stream2) {
+			Sys_Printf('Client %s did not open unreliable stream, closing\n', address);
+			wt.close();
+			return;
+		}
+		clientConn.unreliableStream = stream2;
+		clientConn.unreliableWriter = stream2.writable.getWriter();
+		clientConn.unreliableReader = stream2.readable.getReader();
 
 		// Create a socket for this game connection
 		// Note: With multi-process architecture, lobby protocol is handled by lobby_server.js
@@ -271,6 +323,7 @@ async function _handleWebTransportSession(wt: WebTransport, address: string): Pr
 		sock.lastMessageTime = Date.now() / 1000;
 
 		pendingConnections.push(sock);
+
 		_startBackgroundReaders(sock, clientConn);
 
 		wt.closed.then(() => {
@@ -286,28 +339,35 @@ async function _handleWebTransportSession(wt: WebTransport, address: string): Pr
 }
 
 /**
- * Start background readers for reliable stream and datagrams
+ * Start background readers for reliable and unreliable streams.
  */
 function _startBackgroundReaders(
 	sock: QSocket,
 	conn: ClientConnection
 ): void {
-	// Read reliable messages
+	// Read reliable messages from the first bidirectional stream
 	(async () => {
 		try {
 			while (conn.connected && conn.reliableReader) {
 				const msg = await _readFramedMessage(conn.reliableReader);
-				if (!msg) break;
+				if (msg === null) break;
 
-				// Push just the data, not the frame type (game code expects raw message data)
 				conn.pendingMessages.push({ reliable: true, data: msg.data });
 				conn.lastMessageTime = Date.now();
+
+				// If messages are piling up, the game loop isn't consuming them
+				if (conn.pendingMessages.length > MAX_PENDING_MESSAGES) {
+					Sys_Printf('Reliable reader: %d pending messages for %s, disconnecting\n', conn.pendingMessages.length, conn.address);
+					conn.connected = false;
+					break;
+				}
+
+				// Yield to macrotask queue after reading so the game loop can run
+				await _yieldAfterRead(conn);
 			}
 		} catch (error) {
 			if (conn.connected) {
 				Sys_Printf('Reliable reader error for %s: %s\n', conn.address, String(error));
-				// Only set conn.connected = false, NOT sock.disconnected
-				// sock.disconnected is managed by the Quake network layer via SV_DropClient -> NET_Close
 				conn.connected = false;
 			}
 		}
@@ -317,20 +377,36 @@ function _startBackgroundReaders(
 		} catch { /* ignore */ }
 	})();
 
-	// Read datagrams (unreliable)
+	// Read unreliable messages from the second bidirectional stream
 	(async () => {
 		try {
-			const reader = conn.webTransport.datagrams.readable.getReader();
-			while (conn.connected) {
-				const { value, done } = await reader.read();
-				if (done) break;
-				conn.pendingMessages.push({ reliable: false, data: value });
+			while (conn.connected && conn.unreliableReader) {
+				const msg = await _readFramedMessage(conn.unreliableReader);
+				if (msg === null) break;
+
+				conn.pendingMessages.push({ reliable: false, data: msg.data });
 				conn.lastMessageTime = Date.now();
+
+				// If messages are piling up, the game loop isn't consuming them
+				if (conn.pendingMessages.length > MAX_PENDING_MESSAGES) {
+					Sys_Printf('Unreliable reader: %d pending messages for %s, disconnecting\n', conn.pendingMessages.length, conn.address);
+					conn.connected = false;
+					break;
+				}
+
+				// Yield to macrotask queue after reading so the game loop can run
+				await _yieldAfterRead(conn);
 			}
-			reader.releaseLock();
-		} catch {
-			// Datagram reader ended - normal on disconnect
+		} catch (error) {
+			if (conn.connected) {
+				Sys_Printf('Unreliable reader error for %s: %s\n', conn.address, String(error));
+				conn.connected = false;
+			}
 		}
+		// Release the reader lock when done
+		try {
+			conn.unreliableReader?.releaseLock();
+		} catch { /* ignore */ }
 	})();
 }
 
@@ -406,6 +482,10 @@ async function _readExact(
 	while (offset < n) {
 		const { value, done } = await reader.read();
 		if (done) return null;
+
+		// Guard against zero-length reads (can happen during stream closing).
+		// Without this check, offset never advances and we spin forever.
+		if (value.length === 0) return null;
 
 		const bytesToCopy = Math.min(value.length, n - offset);
 		result.set(value.subarray(0, bytesToCopy), offset);
@@ -498,6 +578,17 @@ function _newQSocket(): QSocket | null {
 function _handleConnectionDeath(sock: QSocket, conn: ClientConnection): void {
 	conn.connected = false;
 
+	// Cancel readers to unblock any stuck reader.read() calls in _readExact.
+	// Without this, reader loops can spin indefinitely after the transport closes.
+	try {
+		if (conn.reliableReader) {
+			conn.reliableReader.cancel().catch(() => {});
+		}
+		if (conn.unreliableReader) {
+			conn.unreliableReader.cancel().catch(() => {});
+		}
+	} catch { /* ignore */ }
+
 	// Check if socket is still in pending queue (never assigned to a client)
 	const pendingIdx = pendingConnections.indexOf(sock);
 	if (pendingIdx !== -1) {
@@ -578,7 +669,7 @@ export function WT_CheckNewConnections(): QSocket | null {
  */
 export function WT_QGetMessage(sock: QSocket): number {
 	const conn = sock.driverdata;
-	if (!conn) return -1;
+	if (conn === null) return -1;
 
 	if (!conn.connected && conn.pendingMessages.length === 0) {
 		return -1;
@@ -618,7 +709,7 @@ export function WT_QGetMessage(sock: QSocket): number {
 }
 
 /**
- * Send a reliable message
+ * Send a reliable message.
  */
 export function WT_QSendMessage(
 	sock: QSocket,
@@ -629,18 +720,15 @@ export function WT_QSendMessage(
 		return -1;
 	}
 
-	// Frame the message
+	// Frame the message: [type=1][length:2][data:N]
 	const frame = new Uint8Array(3 + data.cursize);
 	frame[0] = 1; // reliable type
 	frame[1] = data.cursize & 0xff;
 	frame[2] = (data.cursize >> 8) & 0xff;
 	frame.set(data.data.subarray(0, data.cursize), 3);
 
-	// Send asynchronously
 	conn.reliableWriter.write(frame).catch((err) => {
 		Sys_Printf('WT_QSendMessage: write FAILED: %s\n', (err as Error).message);
-		// Only set conn.connected = false, NOT sock.disconnected
-		// sock.disconnected is managed by the Quake network layer via SV_DropClient -> NET_Close
 		conn.connected = false;
 	});
 
@@ -648,27 +736,24 @@ export function WT_QSendMessage(
 }
 
 /**
- * Send an unreliable message via datagrams
+ * Send an unreliable message over the second bidirectional stream (unreliable channel).
  */
 export function WT_SendUnreliableMessage(
 	sock: QSocket,
 	data: { data: Uint8Array; cursize: number }
 ): number {
 	const conn = sock.driverdata;
-	if (!conn || !conn.connected) return -1;
+	if (!conn || !conn.connected || !conn.unreliableWriter) return -1;
 
-	// Copy the data
-	const dgram = new Uint8Array(data.cursize);
-	dgram.set(data.data.subarray(0, data.cursize));
+	// Frame the message: [type=2][length:2][data:N]
+	const frame = new Uint8Array(3 + data.cursize);
+	frame[0] = 2; // unreliable type
+	frame[1] = data.cursize & 0xff;
+	frame[2] = (data.cursize >> 8) & 0xff;
+	frame.set(data.data.subarray(0, data.cursize), 3);
 
-	// Get or create cached datagram writer (avoids creating new writer every frame at 72Hz)
-	if (conn.datagramWriter === null) {
-		conn.datagramWriter = conn.webTransport.datagrams.writable.getWriter();
-	}
-
-	// Send via datagram
-	conn.datagramWriter.write(dgram).catch(() => {
-		// Silently fail - datagrams are unreliable by design
+	conn.unreliableWriter.write(frame).catch(() => {
+		// Unreliable — silently fail
 	});
 
 	return 1;
@@ -700,14 +785,24 @@ export function WT_Close(sock: QSocket): void {
 	conn.connected = false;
 
 	try {
-		// Close cached writers
+		// Cancel readers first — unblocks any stuck reader.read() in _readExact
+		if (conn.reliableReader) {
+			conn.reliableReader.cancel().catch(() => {});
+			conn.reliableReader = null;
+		}
+		if (conn.unreliableReader) {
+			conn.unreliableReader.cancel().catch(() => {});
+			conn.unreliableReader = null;
+		}
+
+		// Close writers
 		if (conn.reliableWriter) {
 			conn.reliableWriter.close().catch(() => {});
 			conn.reliableWriter = null;
 		}
-		if (conn.datagramWriter) {
-			conn.datagramWriter.close().catch(() => {});
-			conn.datagramWriter = null;
+		if (conn.unreliableWriter) {
+			conn.unreliableWriter.close().catch(() => {});
+			conn.unreliableWriter = null;
 		}
 		conn.webTransport.close();
 	} catch {

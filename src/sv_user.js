@@ -497,6 +497,25 @@ export function SV_ReadClientMove( move ) {
 	if ( impulse )
 		host_client.edict.v.impulse = impulse;
 
+	// Save the command for SV_WritePlayersToClient (player angle broadcasting)
+	if ( host_client.lastcmd == null ) {
+
+		host_client.lastcmd = {
+			angles: new Float32Array( 3 ),
+			forwardmove: 0,
+			sidemove: 0,
+			upmove: 0,
+			buttons: 0,
+			impulse: 0
+		};
+
+	}
+
+	VectorCopy( angle, host_client.lastcmd.angles );
+	host_client.lastcmd.forwardmove = move.forwardmove;
+	host_client.lastcmd.sidemove = move.sidemove;
+	host_client.lastcmd.upmove = move.upmove;
+
 }
 
 /*

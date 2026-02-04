@@ -1448,7 +1448,7 @@ function SV_SendReconnect() {
 	MSG_WriteString( msg, 'reconnect\n' );
 	NET_SendToAll( msg, 5 );
 
-	Cmd_ExecuteString( 'reconnect\n', src_command );
+	Cbuf_InsertText( 'reconnect\n' );
 
 }
 

@@ -264,7 +264,7 @@ export const cshift_water = { destcolor: [ 130, 80, 50 ], percent: 128 };
 export const cshift_slime = { destcolor: [ 0, 25, 5 ], percent: 150 };
 export const cshift_lava = { destcolor: [ 255, 80, 0 ], percent: 150 };
 
-export const v_gamma = new cvar_t( 'gamma', '1', true );
+export const v_gamma = new cvar_t( 'gamma', '0.75', true );
 
 const gammatable = new Uint8Array( 256 );
 

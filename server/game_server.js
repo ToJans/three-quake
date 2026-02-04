@@ -105,6 +105,14 @@ let frameCount = 0;
 let lastHeartbeat = 0;
 const HEARTBEAT_INTERVAL = 30; // Log every 30 seconds
 
+// Watchdog: logs to stderr every 5 seconds to detect event loop freezes
+// If this stops printing, the event loop is completely blocked
+let watchdogCount = 0;
+setInterval(() => {
+	watchdogCount++;
+	console.error('[WATCHDOG] tick=' + watchdogCount + ' time=' + Math.floor(performance.now() / 1000));
+}, 5000);
+
 /**
  * Initialize the game server
  */
@@ -296,6 +304,15 @@ function Host_ServerFrame() {
 	// Set frametime for physics modules
 	SV_SetFrametime(host_frametime);
 
+	// Heartbeat logging — runs before sv.active check so we can detect
+	// whether the game loop is alive even when the server is inactive
+	frameCount++;
+	if (realtime - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+		const playerCount = countActivePlayers();
+		Sys_Printf('[Heartbeat] time=' + Math.floor(realtime) + ' frames=' + frameCount + ' players=' + playerCount + ' sv.active=' + sv.active + '\n');
+		lastHeartbeat = realtime;
+	}
+
 	if (!sv.active) return;
 
 	// Set the time and clear the general datagram
@@ -315,14 +332,6 @@ function Host_ServerFrame() {
 
 	// Send messages to all clients
 	SV_SendClientMessages();
-
-	// Heartbeat logging to detect silent freezes
-	frameCount++;
-	if (realtime - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-		const playerCount = countActivePlayers();
-		Sys_Printf('[Heartbeat] time=' + Math.floor(realtime) + ' frames=' + frameCount + ' players=' + playerCount + '\n');
-		lastHeartbeat = realtime;
-	}
 
 	// Track activity for room servers (idle timeout)
 	if (CONFIG.roomId !== null) {
