@@ -12,7 +12,7 @@ import {
 	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorMA,
 	VectorNormalize, AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
 } from './mathlib.js';
-import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf } from './gl_rsurf.js';
+import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_UpdateWallProbes, R_ClearWallProbeTracking, R_UpdateWorldProbeUniforms, R_ClearWorldProbeMaterials } from './gl_rsurf.js';
 import { Mod_PointInLeaf, Mod_LeafPVS, Mod_Extradata } from './gl_model.js';
 import { R_AnimateLight as R_AnimateLight_impl, R_PushDlights as R_PushDlights_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh } from './gl_mesh.js';
@@ -318,6 +318,16 @@ export function R_SetupFrame() {
 
 	// Update light probes when lightstyle values change
 	R_UpdateLightProbes();
+
+	// Update wall probe materials (brush entities) when probes change
+	if ( cl && cl.worldmodel ) {
+
+		R_UpdateWallProbes( cl.worldmodel );
+
+	}
+
+	// Update world probe material uniforms (blend value)
+	R_UpdateWorldProbeUniforms();
 
 	r_framecount ++;
 
@@ -1118,6 +1128,10 @@ export function R_NewMap() {
 
 	// rebuild lightmaps
 	GL_BuildLightmaps_rsurf();
+
+	// Clear wall probe tracking and world probe materials
+	R_ClearWallProbeTracking();
+	R_ClearWorldProbeMaterials();
 
 	// Clear and rebuild light probes
 	R_ClearLightProbes();

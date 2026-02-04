@@ -12,7 +12,7 @@ import { STAT_TOTALSECRETS, STAT_TOTALMONSTERS, STAT_SECRETS, STAT_MONSTERS,
 import { NUM_FOR_EDICT, EDICT_NUM, EDICT_TO_PROG, PR_GetString } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
 import { sv_player } from './sv_phys.js';
-import { cvar_t, Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue, Cvar_SetServerBroadcast, Cvar_WriteVariables } from './cvar.js';
+import { cvar_t, Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue, Cvar_SetServerBroadcast, Cvar_WriteVariables, Cvar_ResetAll_f } from './cvar.js';
 import { Cmd_Init, Cmd_AddCommand, Cbuf_Init, Cbuf_Execute, Cbuf_AddText, Cbuf_InsertText, Cmd_Argc, Cmd_Argv, Cmd_Args, Cmd_ExecuteString, cmd_source, src_command, src_client, Cmd_SetClientCallbacks, Cmd_ForwardToServer } from './cmd.js';
 import { Memory_Init } from './zone.js';
 import { V_Init } from './view.js';
@@ -255,6 +255,9 @@ export function Host_InitCommands() {
 	Cmd_AddCommand( 'spawn', Host_Spawn_f );
 	Cmd_AddCommand( 'begin', Host_Begin_f );
 	Cmd_AddCommand( 'prespawn', Host_PreSpawn_f );
+
+	// Reset all project-specific cvars to defaults
+	Cmd_AddCommand( 'r_hq_resetall', Cvar_ResetAll_f );
 
 }
 

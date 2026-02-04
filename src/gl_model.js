@@ -34,7 +34,8 @@ import { analyzeTexture } from './gl_texture_analysis.js';
 import { renderer } from './vid.js';
 import {
 	r_tex_upscale, r_tex_pbr, r_tex_upscale_filter,
-	enhanceTexture, generatePBRMaps
+	enhanceTexture, generatePBRMaps,
+	beginTextureUpscaling, endTextureUpscaling
 } from './gl_texture_enhance.js';
 
 // ============================================================================
@@ -2065,7 +2066,12 @@ function Mod_LoadBrushModel( mod, buffer ) {
 	Mod_LoadVertexes( lumps[ LUMP_VERTEXES ].fileofs, lumps[ LUMP_VERTEXES ].filelen );
 	Mod_LoadEdges( lumps[ LUMP_EDGES ].fileofs, lumps[ LUMP_EDGES ].filelen );
 	Mod_LoadSurfedges( lumps[ LUMP_SURFEDGES ].fileofs, lumps[ LUMP_SURFEDGES ].filelen );
+
+	// Start texture upscaling (shows warning if enabled)
+	beginTextureUpscaling();
 	Mod_LoadTextures( lumps[ LUMP_TEXTURES ].fileofs, lumps[ LUMP_TEXTURES ].filelen );
+	// End texture upscaling (shows completion message)
+	endTextureUpscaling();
 	Mod_LoadLighting( lumps[ LUMP_LIGHTING ].fileofs, lumps[ LUMP_LIGHTING ].filelen );
 	Mod_LoadPlanes( lumps[ LUMP_PLANES ].fileofs, lumps[ LUMP_PLANES ].filelen );
 	Mod_LoadTexinfo( lumps[ LUMP_TEXINFO ].fileofs, lumps[ LUMP_TEXINFO ].filelen );

@@ -74,6 +74,7 @@ export class cvar_t {
 
 		this.name = name;
 		this.string = string || '';
+		this.defaultString = this.string; // Store default for reset functionality
 		this.archive = archive || false; // set to true to cause it to be saved to vars.rc
 		this.server = server || false; // notifies players when changed
 		this.value = parseFloat( this.string ) || 0;
@@ -303,5 +304,130 @@ export function Cvar_WriteVariables() {
 	}
 
 	return lines.join( '' );
+
+}
+
+/*
+============
+Cvar_ResetToDefault
+
+Resets a cvar to its default value.
+============
+*/
+export function Cvar_ResetToDefault( var_name ) {
+
+	const _var = Cvar_FindVar( var_name );
+	if ( ! _var ) {
+
+		Con_Printf( 'Cvar_ResetToDefault: variable ' + var_name + ' not found\n' );
+		return;
+
+	}
+
+	if ( _var.defaultString !== undefined ) {
+
+		Cvar_Set( var_name, _var.defaultString );
+		Con_Printf( _var.name + ' reset to "' + _var.defaultString + '"\n' );
+
+	}
+
+}
+
+/*
+============
+Cvar_ClearStorage
+
+Removes a cvar from localStorage.
+============
+*/
+function Cvar_ClearStorage( name ) {
+
+	if ( typeof localStorage === 'undefined' ) return;
+
+	try {
+
+		localStorage.removeItem( CVAR_STORAGE_PREFIX + name );
+
+	} catch ( e ) {
+
+		// Ignore errors
+	}
+
+}
+
+/*
+============
+Cvar_ResetAllCustom
+
+Resets all project-specific cvars (those with certain prefixes) to defaults.
+Also clears them from localStorage.
+============
+*/
+export function Cvar_ResetAllCustom() {
+
+	// Prefixes for project-specific cvars (all under r_hq_*)
+	const customPrefixes = [
+		'r_hq_'
+	];
+
+	let _var = cvar_vars;
+	let count = 0;
+
+	while ( _var ) {
+
+		// Check if this cvar matches any of our custom prefixes
+		let isCustom = false;
+		for ( const prefix of customPrefixes ) {
+
+			if ( _var.name.startsWith( prefix ) ) {
+
+				isCustom = true;
+				break;
+
+			}
+
+		}
+
+		if ( isCustom && _var.defaultString !== undefined ) {
+
+			const oldValue = _var.string;
+			_var.string = _var.defaultString;
+			_var.value = parseFloat( _var.string ) || 0;
+
+			// Clear from localStorage
+			if ( _var.archive ) {
+
+				Cvar_ClearStorage( _var.name );
+
+			}
+
+			if ( oldValue !== _var.string ) {
+
+				Con_Printf( _var.name + ': "' + oldValue + '" -> "' + _var.defaultString + '"\n' );
+				count ++;
+
+			}
+
+		}
+
+		_var = _var.next;
+
+	}
+
+	Con_Printf( 'Reset ' + count + ' cvars to defaults\n' );
+
+}
+
+/*
+============
+Cvar_ResetAll_f
+
+Console command to reset all custom cvars to defaults.
+Usage: resetall
+============
+*/
+export function Cvar_ResetAll_f() {
+
+	Cvar_ResetAllCustom();
 
 }

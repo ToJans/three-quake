@@ -159,6 +159,13 @@ function handleKeyDown( event ) {
 	// Unlock audio on first user gesture
 	S_UnlockAudio();
 
+	// Skip processing Ctrl+V / Cmd+V to let paste event handler deal with it
+	if ( ( event.ctrlKey || event.metaKey ) && event.code === 'KeyV' ) {
+
+		return;
+
+	}
+
 	const prevKeyDest = key_dest;
 
 	const qkey = mapBrowserKeyToQuake( event );
@@ -205,6 +212,13 @@ function handleKeyDown( event ) {
 function handleKeyUp( event ) {
 
 	if ( ! in_initialized ) return;
+
+	// Skip processing Ctrl+V / Cmd+V (matches keydown handler)
+	if ( ( event.ctrlKey || event.metaKey ) && event.code === 'KeyV' ) {
+
+		return;
+
+	}
 
 	const qkey = mapBrowserKeyToQuake( event );
 	if ( qkey ) {
@@ -365,6 +379,33 @@ function handleContextMenu( event ) {
 
 }
 
+function handlePaste( event ) {
+
+	if ( ! in_initialized ) return;
+
+	// Get pasted text from clipboard
+	const text = ( event.clipboardData || window.clipboardData ).getData( 'text' );
+	if ( ! text ) return;
+
+	// Feed each character as a key press (only first line, strip newlines)
+	const firstLine = text.split( /[\r\n]/ )[ 0 ];
+	for ( let i = 0; i < firstLine.length; i ++ ) {
+
+		const code = firstLine.charCodeAt( i );
+		// Only pass printable ASCII characters (32-126)
+		if ( code >= 32 && code <= 126 ) {
+
+			Key_Event( code, true );
+			Key_Event( code, false );
+
+		}
+
+	}
+
+	event.preventDefault();
+
+}
+
 function handleVisibilityChange() {
 
 	// Placeholder for visibility change handling (wake lock is in touch.js for mobile)
@@ -422,6 +463,7 @@ export function IN_Init( element ) {
 	// Set up event listeners
 	document.addEventListener( 'keydown', handleKeyDown );
 	document.addEventListener( 'keyup', handleKeyUp );
+	document.addEventListener( 'paste', handlePaste );
 
 	targetElement.addEventListener( 'mousemove', handleMouseMove );
 	targetElement.addEventListener( 'mousedown', handleMouseDown );
@@ -466,6 +508,7 @@ export function IN_Shutdown() {
 
 	document.removeEventListener( 'keydown', handleKeyDown );
 	document.removeEventListener( 'keyup', handleKeyUp );
+	document.removeEventListener( 'paste', handlePaste );
 
 	if ( targetElement ) {
 

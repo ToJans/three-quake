@@ -130,13 +130,13 @@ let currentRayDirections = RAY_DIRECTIONS_MEDIUM;
 // Cvars
 // ============================================================================
 
-export const r_lightprobes = new cvar_t( 'r_lightprobes', '1' );
+export const r_lightprobes = new cvar_t( 'r_hq_lightprobes', '1', true );
 
 // Quality level: 0=low (6 rays), 1=medium (26 rays), 2=high (66 rays)
-export const r_lightprobes_quality = new cvar_t( 'r_lightprobes_quality', '2' );
+export const r_lightprobes_quality = new cvar_t( 'r_hq_lightprobes_quality', '2', true );
 
 // Number of sample positions per probe (1=centroid only, higher=multi-sample)
-export const r_lightprobes_samples = new cvar_t( 'r_lightprobes_samples', '4' );
+export const r_lightprobes_samples = new cvar_t( 'r_hq_lightprobes_samples', '4', true );
 
 /**
  * Get ray directions array based on current quality setting.

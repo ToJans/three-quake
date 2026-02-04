@@ -19,7 +19,9 @@ import { r_worldentity, R_Init as R_Init_rmain, GL_BuildLightmaps as GL_BuildLig
 	r_lightprobes, r_lightprobes_quality, r_lightprobes_samples
 } from './gl_rmain.js';
 import { r_tex_upscale, r_tex_pbr, r_tex_upscale_filter } from './gl_texture_enhance.js';
-import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
+import { set_skytexturenum as set_skytexturenum_rsurf,
+	r_wall_probes, r_wall_probes_intensity, r_wall_probes_max_brightness, r_wall_probes_blend
+} from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
 import { d_8to24table } from './vid.js';
 
@@ -287,6 +289,12 @@ export function R_Init() {
 		_Cvar_RegisterVariable( r_tex_upscale );
 		_Cvar_RegisterVariable( r_tex_pbr );
 		_Cvar_RegisterVariable( r_tex_upscale_filter );
+
+		// Wall probe lighting system
+		_Cvar_RegisterVariable( r_wall_probes );
+		_Cvar_RegisterVariable( r_wall_probes_intensity );
+		_Cvar_RegisterVariable( r_wall_probes_max_brightness );
+		_Cvar_RegisterVariable( r_wall_probes_blend );
 
 	}
 

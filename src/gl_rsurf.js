@@ -5,9 +5,268 @@ import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf, COM_CheckParm } from './common.js';
 import { vid } from './vid.js';
 import { r_tex_pbr } from './gl_texture_enhance.js';
+import { cvar_t } from './cvar.js';
+import {
+	R_GetLightProbe, SH_Evaluate, SH_GetAmbient,
+	r_lightprobes
+} from './gl_lightprobe.js';
+
+//============================================================================
+// Wall Relighting CVars
+//============================================================================
+
+// Enable probe-based wall relighting (0=off, 1=on)
+export const r_wall_probes = new cvar_t( 'r_hq_wall_probes', '1', true );
+
+// Intensity of probe contribution to walls (0.0-1.0, default 0.15 for subtle effect)
+export const r_wall_probes_intensity = new cvar_t( 'r_hq_wall_probes_intensity', '0.15', true );
+
+// Maximum brightness cap to prevent bloom (values above this are softly clamped)
+// Default 0.85 stays well below typical bloom threshold of ~1.0 post-tonemapping
+export const r_wall_probes_max_brightness = new cvar_t( 'r_hq_wall_probes_max_brightness', '0.85', true );
+
+// Blend between lightmap and probe lighting (0.0 = all lightmap, 1.0 = all probe)
+// Default 0.0 means probes add on top of lightmap; higher values replace lightmap with probe
+export const r_wall_probes_blend = new cvar_t( 'r_hq_wall_probes_blend', '0', true );
+
+//============================================================================
+// Custom Shader for Probe-Lit Surfaces
+//
+// Combines diffuse + lightmap + probe contribution with soft brightness capping
+// to prevent excessive highlights from appearing in bloom.
+//============================================================================
+
+const probeLitVertexShader = /* glsl */`
+attribute vec2 uv1; // Lightmap UVs (second UV channel)
+
+varying vec2 vUv;
+varying vec2 vUv2;
+varying vec3 vWorldNormal;
+
+void main() {
+	vUv = uv;
+	vUv2 = uv1;
+	vWorldNormal = normalize( normalMatrix * normal );
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+}
+`;
+
+const probeLitFragmentShader = /* glsl */`
+precision highp float;
+
+uniform sampler2D map;
+uniform sampler2D lightMap;
+uniform float lightMapIntensity;
+
+// Probe lighting uniforms
+uniform vec3 probeAmbient;      // L0 term (base ambient)
+uniform vec3 probeDirectional;  // Dominant direction color
+uniform vec3 probeDirVector;    // Direction of strongest light
+uniform float probeIntensity;   // Overall probe contribution strength
+uniform float maxBrightness;    // Soft cap to prevent bloom
+uniform float probeBlend;       // 0 = all lightmap, 1 = all probe
+
+varying vec2 vUv;
+varying vec2 vUv2;
+varying vec3 vWorldNormal;
+
+// Soft brightness limiting - prevents harsh clipping while avoiding bloom
+// Uses a smooth shoulder curve instead of hard clamp
+vec3 softClamp( vec3 color, float maxVal ) {
+	// Per-channel soft knee compression
+	// Values below maxVal*0.8 pass through, above that get compressed
+	float knee = maxVal * 0.8;
+	vec3 result;
+	for ( int i = 0; i < 3; i++ ) {
+		float c = color[i];
+		if ( c <= knee ) {
+			result[i] = c;
+		} else {
+			// Soft compression: asymptotically approaches maxVal
+			float excess = c - knee;
+			float range = maxVal - knee;
+			result[i] = knee + range * ( 1.0 - exp( -excess / range ) );
+		}
+	}
+	return result;
+}
+
+void main() {
+	// Sample diffuse texture
+	vec4 diffuse = texture2D( map, vUv );
+
+	// Sample lightmap
+	vec4 lightMapColor = texture2D( lightMap, vUv2 );
+
+	// Base lighting from lightmap (standard Quake rendering)
+	vec3 lightmapLighting = diffuse.rgb * lightMapColor.rgb * lightMapIntensity;
+
+	// Calculate probe contribution
+	// Use surface normal to evaluate directional component
+	float nDotL = max( 0.0, dot( vWorldNormal, probeDirVector ) );
+
+	// Combine ambient and directional probe lighting
+	// The directional component adds subtle variation based on surface orientation
+	vec3 probeLight = probeAmbient + probeDirectional * nDotL * 0.5;
+
+	// Full probe lighting (used when blend = 1)
+	vec3 probeLighting = diffuse.rgb * probeLight * lightMapIntensity;
+
+	// Additional probe contribution for additive mode (used when blend = 0)
+	vec3 probeAdditive = diffuse.rgb * probeLight * probeIntensity;
+
+	// Blend between modes:
+	// blend = 0: lightmap + additive probe tint (original behavior)
+	// blend = 1: pure probe lighting (no lightmap)
+	// Values in between interpolate
+	vec3 blendedBase = mix( lightmapLighting, probeLighting, probeBlend );
+	vec3 additiveContrib = probeAdditive * ( 1.0 - probeBlend ); // Fade out additive as blend increases
+
+	vec3 finalColor = blendedBase + additiveContrib;
+
+	// Apply soft brightness limiting to prevent bloom
+	finalColor = softClamp( finalColor, maxBrightness );
+
+	gl_FragColor = vec4( finalColor, diffuse.a );
+}
+`;
+
+// Cache for probe-lit materials to avoid creating duplicates
+const _probeLitMaterialCache = new Map();
+
+//============================================================================
+// World Probe Material (uses vertex colors for per-vertex probe data)
+//============================================================================
+
+const worldProbeVertexShader = /* glsl */`
+attribute vec2 uv1; // Lightmap UVs (second UV channel)
+
+varying vec2 vUv;
+varying vec2 vUv2;
+varying vec3 vProbeColor;
+
+void main() {
+	vUv = uv;
+	vUv2 = uv1;
+	vProbeColor = color.rgb; // Probe ambient stored in vertex color
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+}
+`;
+
+const worldProbeFragmentShader = /* glsl */`
+uniform sampler2D map;
+uniform sampler2D lightMap;
+uniform float lightMapIntensity;
+uniform float probeBlend;       // 0 = all lightmap, 1 = all probe
+uniform float maxBrightness;    // Soft cap to prevent bloom
+
+varying vec2 vUv;
+varying vec2 vUv2;
+varying vec3 vProbeColor;
+
+// Soft brightness limiting - prevents harsh clipping while avoiding bloom
+vec3 softClamp( vec3 color, float maxVal ) {
+	float knee = maxVal * 0.8;
+	vec3 result;
+	for ( int i = 0; i < 3; i++ ) {
+		float c = color[i];
+		if ( c <= knee ) {
+			result[i] = c;
+		} else {
+			float excess = c - knee;
+			float range = maxVal - knee;
+			result[i] = knee + range * ( 1.0 - exp( -excess / range ) );
+		}
+	}
+	return result;
+}
+
+void main() {
+	vec4 diffuse = texture2D( map, vUv );
+	vec4 lightMapColor = texture2D( lightMap, vUv2 );
+
+	// Standard lightmap lighting
+	vec3 lightmapLighting = diffuse.rgb * lightMapColor.rgb * lightMapIntensity;
+
+	// Probe lighting from vertex color
+	vec3 probeLighting = diffuse.rgb * vProbeColor * lightMapIntensity;
+
+	// Blend between lightmap and probe based on probeBlend
+	vec3 finalColor = mix( lightmapLighting, probeLighting, probeBlend );
+
+	// Apply soft brightness limiting
+	finalColor = softClamp( finalColor, maxBrightness );
+
+	gl_FragColor = vec4( finalColor, diffuse.a );
+}
+`;
+
+// Track all world probe materials for uniform updates
+const _worldProbeMaterials = new Set();
 
 /**
- * Create material for Quake world surfaces with lightmaps.
+ * Create a world material with vertex color probe support.
+ */
+function createWorldProbeMaterial( diffuseMap, lightmapTex ) {
+
+	lightmapTex.channel = 1;
+
+	const material = new THREE.ShaderMaterial( {
+		uniforms: {
+			map: { value: diffuseMap },
+			lightMap: { value: lightmapTex },
+			lightMapIntensity: { value: 2.0 },
+			probeBlend: { value: r_wall_probes_blend.value },
+			maxBrightness: { value: r_wall_probes_max_brightness.value }
+		},
+		vertexShader: worldProbeVertexShader,
+		fragmentShader: worldProbeFragmentShader,
+		vertexColors: true
+	} );
+
+	_worldProbeMaterials.add( material );
+	return material;
+
+}
+
+/**
+ * Update all world probe material uniforms (call each frame).
+ */
+export function R_UpdateWorldProbeUniforms() {
+
+	const blend = r_wall_probes_blend.value;
+	const maxBright = r_wall_probes_max_brightness.value;
+
+	for ( const material of _worldProbeMaterials ) {
+
+		if ( material.uniforms ) {
+
+			material.uniforms.probeBlend.value = blend;
+			material.uniforms.maxBrightness.value = maxBright;
+
+		}
+
+	}
+
+}
+
+/**
+ * Clear world probe materials (call on map change).
+ */
+export function R_ClearWorldProbeMaterials() {
+
+	for ( const material of _worldProbeMaterials ) {
+
+		material.dispose();
+
+	}
+
+	_worldProbeMaterials.clear();
+
+}
+
+/**
+ * Create material for Quake world surfaces with lightmaps and optional probe lighting.
  * When r_tex_pbr is enabled and PBR maps exist, uses MeshStandardMaterial
  * for physically-based rendering with normal/roughness maps.
  * Otherwise falls back to MeshLambertMaterial for compatibility.
@@ -52,6 +311,345 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 	} );
 
 }
+
+/**
+ * Create a probe-lit material for wall surfaces.
+ * Uses a custom shader that combines diffuse + lightmap + probe contribution
+ * with soft brightness capping to prevent bloom.
+ *
+ * @param {THREE.Texture} diffuseMap - The diffuse texture
+ * @param {THREE.Texture} lightmapTex - The lightmap texture
+ * @param {object} probeData - Optional probe data {ambient: [r,g,b], directional: [r,g,b], direction: [x,y,z]}
+ * @returns {THREE.ShaderMaterial} The probe-lit material
+ */
+function createProbeLitMaterial( diffuseMap, lightmapTex, probeData ) {
+
+	lightmapTex.channel = 1;
+
+	// Default neutral probe data if none provided
+	const ambient = probeData?.ambient || [ 0.5, 0.5, 0.5 ];
+	const directional = probeData?.directional || [ 0, 0, 0 ];
+	const direction = probeData?.direction || [ 0, 0, 1 ];
+
+	const material = new THREE.ShaderMaterial( {
+		uniforms: {
+			map: { value: diffuseMap },
+			lightMap: { value: lightmapTex },
+			lightMapIntensity: { value: 2.0 },
+			probeAmbient: { value: new THREE.Vector3( ambient[ 0 ], ambient[ 1 ], ambient[ 2 ] ) },
+			probeDirectional: { value: new THREE.Vector3( directional[ 0 ], directional[ 1 ], directional[ 2 ] ) },
+			probeDirVector: { value: new THREE.Vector3( direction[ 0 ], direction[ 1 ], direction[ 2 ] ).normalize() },
+			probeIntensity: { value: r_wall_probes_intensity.value },
+			maxBrightness: { value: r_wall_probes_max_brightness.value },
+			probeBlend: { value: r_wall_probes_blend.value }
+		},
+		vertexShader: probeLitVertexShader,
+		fragmentShader: probeLitFragmentShader
+	} );
+
+	return material;
+
+}
+
+/**
+ * Update probe uniforms for a probe-lit material.
+ * Call this when probe data changes (e.g., animated lightstyles).
+ *
+ * @param {THREE.ShaderMaterial} material - The probe-lit material
+ * @param {object} probeData - Probe data {ambient: [r,g,b], directional: [r,g,b], direction: [x,y,z]}
+ */
+export function updateProbeLitMaterial( material, probeData ) {
+
+	if ( ! material || ! material.uniforms ) return;
+
+	if ( probeData ) {
+
+		if ( probeData.ambient ) {
+
+			material.uniforms.probeAmbient.value.set(
+				probeData.ambient[ 0 ],
+				probeData.ambient[ 1 ],
+				probeData.ambient[ 2 ]
+			);
+
+		}
+
+		if ( probeData.directional ) {
+
+			material.uniforms.probeDirectional.value.set(
+				probeData.directional[ 0 ],
+				probeData.directional[ 1 ],
+				probeData.directional[ 2 ]
+			);
+
+		}
+
+		if ( probeData.direction ) {
+
+			material.uniforms.probeDirVector.value.set(
+				probeData.direction[ 0 ],
+				probeData.direction[ 1 ],
+				probeData.direction[ 2 ]
+			).normalize();
+
+		}
+
+	}
+
+	// Update intensity, max brightness, and blend from cvars
+	material.uniforms.probeIntensity.value = r_wall_probes_intensity.value;
+	material.uniforms.maxBrightness.value = r_wall_probes_max_brightness.value;
+	material.uniforms.probeBlend.value = r_wall_probes_blend.value;
+
+}
+
+/**
+ * Get probe data for a world position, formatted for use with probe-lit materials.
+ * Returns null if probes are disabled or no probe is found.
+ *
+ * @param {Float32Array|number[]} position - World position [x, y, z]
+ * @param {object} model - The worldmodel
+ * @returns {object|null} Probe data {ambient, directional, direction} or null
+ */
+function getProbeDataForPosition( position, model ) {
+
+	if ( ! r_lightprobes.value || ! r_wall_probes.value ) return null;
+
+	const probe = R_GetLightProbe( position, model );
+	if ( ! probe ) return null;
+
+	// Get ambient (L0) term
+	const ambient = SH_GetAmbient( probe.sh );
+
+	// Evaluate in several directions to find dominant light direction
+	// This is an approximation - we sample along axes and find the brightest
+	const dirs = [
+		[ 1, 0, 0 ], [ - 1, 0, 0 ],
+		[ 0, 1, 0 ], [ 0, - 1, 0 ],
+		[ 0, 0, 1 ], [ 0, 0, - 1 ]
+	];
+
+	let maxLum = 0;
+	let bestDir = [ 0, 0, 1 ];
+	let bestColor = [ 0, 0, 0 ];
+
+	for ( const dir of dirs ) {
+
+		const color = SH_Evaluate( probe.sh, dir );
+		const lum = color[ 0 ] * 0.299 + color[ 1 ] * 0.587 + color[ 2 ] * 0.114;
+		if ( lum > maxLum ) {
+
+			maxLum = lum;
+			bestDir = dir;
+			bestColor = color;
+
+		}
+
+	}
+
+	// Calculate directional component (difference from ambient)
+	const directional = [
+		Math.max( 0, bestColor[ 0 ] - ambient[ 0 ] ),
+		Math.max( 0, bestColor[ 1 ] - ambient[ 1 ] ),
+		Math.max( 0, bestColor[ 2 ] - ambient[ 2 ] )
+	];
+
+	return {
+		ambient: ambient,
+		directional: directional,
+		direction: bestDir
+	};
+
+}
+
+/**
+ * Interpolate multiple SH coefficient arrays with given weights.
+ * SH coefficients form a linear vector space, so linear interpolation is mathematically correct.
+ *
+ * @param {Float32Array[]} shArrays - Array of SH coefficient arrays (each 12 floats)
+ * @param {number[]} weights - Interpolation weights (should sum to 1.0)
+ * @returns {Float32Array} Interpolated SH coefficients (12 floats)
+ */
+function SH_Interpolate( shArrays, weights ) {
+
+	const result = new Float32Array( 12 );
+
+	for ( let i = 0; i < 12; i ++ ) {
+
+		result[ i ] = 0;
+
+		for ( let j = 0; j < shArrays.length; j ++ ) {
+
+			if ( shArrays[ j ] ) {
+
+				result[ i ] += shArrays[ j ][ i ] * weights[ j ];
+
+			}
+
+		}
+
+	}
+
+	return result;
+
+}
+
+// Default SH coefficients for neutral gray lighting (L0 only)
+// This represents uniform ambient light of 0.5 intensity
+const DEFAULT_SH = new Float32Array( [
+	0.5 / 0.282095, 0, 0, 0, // R: L0 = 0.5 / SH_C0
+	0.5 / 0.282095, 0, 0, 0, // G
+	0.5 / 0.282095, 0, 0, 0  // B
+] );
+
+/**
+ * Add probe vertex colors to a geometry using proper SH interpolation.
+ * For each triangle:
+ * 1. Gets SH coefficients at each vertex position
+ * 2. Interpolates SH coefficients to compute centroid SH
+ * 3. Blends vertex SH with centroid SH (2/3 vertex, 1/3 centroid)
+ * 4. Evaluates final color using surface normal
+ *
+ * This preserves the spherical nature of the SH data and produces smoother
+ * lighting transitions across large triangles.
+ *
+ * @param {THREE.BufferGeometry} geometry - The geometry to add colors to
+ * @param {object} worldmodel - The worldmodel for probe lookups
+ */
+function addProbeVertexColors( geometry, worldmodel ) {
+
+	const positions = geometry.getAttribute( 'position' );
+	const normals = geometry.getAttribute( 'normal' );
+	if ( ! positions ) return;
+
+	const vertCount = positions.count;
+	const colors = new Float32Array( vertCount * 3 );
+
+	const pos = [ 0, 0, 0 ];
+	const centroid = [ 0, 0, 0 ];
+	const normal = [ 0, 0, 1 ];
+
+	// Process triangles (3 vertices each)
+	const triCount = Math.floor( vertCount / 3 );
+
+	for ( let t = 0; t < triCount; t ++ ) {
+
+		const i0 = t * 3;
+		const i1 = t * 3 + 1;
+		const i2 = t * 3 + 2;
+
+		// Get surface normal (flat shading - same for all vertices of triangle)
+		// Use first vertex's normal as the face normal
+		if ( normals ) {
+
+			normal[ 0 ] = normals.getX( i0 );
+			normal[ 1 ] = normals.getY( i0 );
+			normal[ 2 ] = normals.getZ( i0 );
+
+		}
+
+		// Get SH coefficients at each vertex
+		const vertexSH = [];
+
+		for ( let v = 0; v < 3; v ++ ) {
+
+			const idx = i0 + v;
+			pos[ 0 ] = positions.getX( idx );
+			pos[ 1 ] = positions.getY( idx );
+			pos[ 2 ] = positions.getZ( idx );
+
+			const probe = R_GetLightProbe( pos, worldmodel );
+			vertexSH[ v ] = probe ? probe.sh : DEFAULT_SH;
+
+		}
+
+		// Compute centroid SH by averaging the three vertex SH coefficients
+		// This is mathematically correct because SH coefficients are a linear vector space
+		const centroidSH = SH_Interpolate( vertexSH, [ 1 / 3, 1 / 3, 1 / 3 ] );
+
+		// For each vertex, blend vertex SH with centroid SH, then evaluate
+		for ( let v = 0; v < 3; v ++ ) {
+
+			const idx = i0 + v;
+
+			// Blend SH: 2/3 vertex, 1/3 centroid
+			// GPU interpolation will naturally blend toward centroid at triangle center
+			const blendedSH = SH_Interpolate(
+				[ vertexSH[ v ], centroidSH ],
+				[ 0.67, 0.33 ]
+			);
+
+			// Evaluate color using surface normal (preserves directional lighting)
+			const color = SH_Evaluate( blendedSH, normal );
+
+			colors[ idx * 3 + 0 ] = color[ 0 ];
+			colors[ idx * 3 + 1 ] = color[ 1 ];
+			colors[ idx * 3 + 2 ] = color[ 2 ];
+
+		}
+
+	}
+
+	geometry.setAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+
+}
+
+// Track entities with probe materials for updates
+const _entitiesWithProbeMaterials = new Set();
+
+/**
+ * Register an entity that has probe-lit materials for updates.
+ * Called when brush entities with probe materials are created.
+ */
+function registerEntityForProbeUpdates( entity ) {
+
+	_entitiesWithProbeMaterials.add( entity );
+
+}
+
+/**
+ * Update all probe-lit materials when lightstyles change.
+ * Should be called after R_UpdateLightProbes in the render loop.
+ *
+ * @param {object} worldmodel - The worldmodel for probe lookups
+ */
+export function R_UpdateWallProbes( worldmodel ) {
+
+	if ( ! r_wall_probes.value || ! r_lightprobes.value ) return;
+
+	// Update probe materials for all registered entities
+	for ( const entity of _entitiesWithProbeMaterials ) {
+
+		if ( ! entity._probeMaterials || entity._probeMaterials.length === 0 ) {
+
+			_entitiesWithProbeMaterials.delete( entity );
+			continue;
+
+		}
+
+		// Get updated probe data for entity position
+		const probeData = getProbeDataForPosition( entity.origin, worldmodel );
+
+		// Update all materials for this entity
+		for ( const material of entity._probeMaterials ) {
+
+			updateProbeLitMaterial( material, probeData );
+
+		}
+
+	}
+
+}
+
+/**
+ * Clear probe update tracking (call on map change).
+ */
+export function R_ClearWallProbeTracking() {
+
+	_entitiesWithProbeMaterials.clear();
+
+}
+
 import { cl, cl_dlights } from './client.js';
 import {
 	r_refdef, r_origin, vpn, vright, vup
@@ -1264,9 +1862,19 @@ export function R_DrawBrushModel( e ) {
 		for ( const child of brushGroup.children ) {
 
 			if ( child.geometry ) child.geometry.dispose();
-			// Don't dispose materials - they're cached in _brushMaterialCache
+			// Don't dispose standard materials - they're cached in _brushMaterialCache
 
 		}
+
+		// Dispose probe materials (they're per-entity, not cached)
+		if ( e._probeMaterials ) {
+
+			for ( const mat of e._probeMaterials ) mat.dispose();
+			e._probeMaterials = null;
+			_entitiesWithProbeMaterials.delete( e );
+
+		}
+
 		brushGroup = null;
 		e._brushGroup = null;
 
@@ -1313,17 +1921,38 @@ export function R_DrawBrushModel( e ) {
 				const diffuse = ( t && t.gl_texture ) ? t.gl_texture : null;
 				const lmTex = lightmapTextures[ psurf.lightmaptexturenum ];
 
-				// Use cached material to avoid shader recompilation
-				const diffuseId = diffuse ? diffuse.id : 0;
-				const lmId = lmTex ? lmTex.id : 0;
-				const matKey = `${diffuseId}_${lmId}`;
-				let material = _brushMaterialCache.get( matKey );
-				if ( ! material ) {
+				// Check if probe lighting is enabled for walls
+				const useProbes = r_wall_probes.value && r_lightprobes.value && diffuse && lmTex;
+				let material;
 
-					material = ( diffuse && lmTex )
-						? createQuakeLightmapMaterial( diffuse, lmTex )
-						: new THREE.MeshBasicMaterial( { map: diffuse } );
-					_brushMaterialCache.set( matKey, material );
+				if ( useProbes ) {
+
+					// Get probe data for this entity's position
+					const probeData = getProbeDataForPosition( e.origin, cl?.worldmodel );
+
+					// Create probe-lit material (per-entity, not globally cached)
+					// This allows per-entity probe coloring
+					material = createProbeLitMaterial( diffuse, lmTex, probeData );
+
+					// Store for later uniform updates
+					if ( ! e._probeMaterials ) e._probeMaterials = [];
+					e._probeMaterials.push( material );
+
+				} else {
+
+					// Use cached standard material
+					const diffuseId = diffuse ? diffuse.id : 0;
+					const lmId = lmTex ? lmTex.id : 0;
+					const matKey = `${diffuseId}_${lmId}`;
+					material = _brushMaterialCache.get( matKey );
+					if ( ! material ) {
+
+						material = ( diffuse && lmTex )
+							? createQuakeLightmapMaterial( diffuse, lmTex )
+							: new THREE.MeshBasicMaterial( { map: diffuse } );
+						_brushMaterialCache.set( matKey, material );
+
+					}
 
 				}
 
@@ -1338,6 +1967,13 @@ export function R_DrawBrushModel( e ) {
 		e._brushGroup = brushGroup;
 		e._brushGroupFrame = e.frame; // Track frame for texture animation invalidation
 		_allBrushEntityGroups.add( brushGroup );
+
+		// Register entity for probe updates if it has probe materials
+		if ( e._probeMaterials && e._probeMaterials.length > 0 ) {
+
+			registerEntityForProbeUpdates( e );
+
+		}
 
 	}
 
@@ -2320,6 +2956,13 @@ function R_BuildWorldMeshes() {
 		const geom = DrawGLPoly( surf.polys, planeNormal );
 		if ( ! geom ) continue;
 
+		// Add probe vertex colors if probe lighting is enabled
+		if ( r_wall_probes.value && r_lightprobes.value ) {
+
+			addProbeVertexColors( geom, worldmodel );
+
+		}
+
 		const lmNum = surf.lightmaptexturenum;
 		const texKey = ( t._buildId || ( t._buildId = Math.random() ) ) + '_' + lmNum;
 
@@ -2354,9 +2997,21 @@ function R_BuildWorldMeshes() {
 		const animTex = R_TextureAnimation( t );
 		const diffuse = ( animTex && animTex.gl_texture ) ? animTex.gl_texture : t.gl_texture;
 		const lmTex = lightmapTextures[ group.lmNum ];
-		const material = lmTex
-			? createQuakeLightmapMaterial( diffuse, lmTex )
-			: new THREE.MeshBasicMaterial( { map: diffuse } );
+
+		// Use probe material if probes are enabled, otherwise standard material
+		const useProbes = r_wall_probes.value && r_lightprobes.value && lmTex;
+		let material;
+		if ( useProbes ) {
+
+			material = createWorldProbeMaterial( diffuse, lmTex );
+
+		} else {
+
+			material = lmTex
+				? createQuakeLightmapMaterial( diffuse, lmTex )
+				: new THREE.MeshBasicMaterial( { map: diffuse } );
+
+		}
 
 		// Create BatchedMesh with capacity for all geometries in this group
 		const batchedMesh = new THREE.BatchedMesh(

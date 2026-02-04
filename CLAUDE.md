@@ -19,6 +19,19 @@ window.Cbuf_AddText("map e1m1\n");       // Load a map
 bun run dev  # Starts server on http://localhost:8080
 ```
 
+## Reset to Defaults
+
+To reset all project-specific CVars to their default values:
+```
+r_hq_resetall
+```
+
+This resets CVars with these prefixes to defaults and clears them from localStorage:
+- `r_hq_lightprobes*` - Light probe system
+- `r_hq_wall_probes*` - Wall probe relighting
+- `r_hq_tex_*` - Texture enhancement
+- `cg_hq*` - Postprocessing effects
+
 ## Postprocessing CVars
 
 Enable/disable effects:
@@ -44,9 +57,9 @@ Probes capture colored directional lighting from the world and apply it to entit
 
 | CVar | Default | Description |
 |------|---------|-------------|
-| `r_lightprobes` | 1 | Enable/disable light probe system (0/1) |
-| `r_lightprobes_quality` | 2 | Ray quality: 0=low (6 rays), 1=medium (26 rays), 2=high (66 rays) |
-| `r_lightprobes_samples` | 4 | Sample positions per probe (1-8, higher=smoother but slower bake) |
+| `r_hq_lightprobes` | 1 | Enable/disable light probe system (0/1) |
+| `r_hq_lightprobes_quality` | 2 | Ray quality: 0=low (6 rays), 1=medium (26 rays), 2=high (66 rays) |
+| `r_hq_lightprobes_samples` | 4 | Sample positions per probe (1-8, higher=smoother but slower bake) |
 
 ### Features
 
@@ -77,15 +90,57 @@ Stand near lava or slime and watch your weapon tint orange/green.
 
 For faster map loads, reduce quality:
 ```
-r_lightprobes_quality 0   // Fast: 6 rays per sample
-r_lightprobes_samples 1   // Fast: single sample per probe
+r_hq_lightprobes_quality 0   // Fast: 6 rays per sample
+r_hq_lightprobes_samples 1   // Fast: single sample per probe
 ```
 
 For best quality:
 ```
-r_lightprobes_quality 2   // Best: 66 rays per sample
-r_lightprobes_samples 8   // Best: 8 samples per probe
+r_hq_lightprobes_quality 2   // Best: 66 rays per sample
+r_hq_lightprobes_samples 8   // Best: 8 samples per probe
 ```
+
+### Wall Relighting from Probes
+
+Brush entities (doors, platforms, lifts) can receive colored lighting from probes.
+This is **bloom-safe** - a soft brightness cap prevents excessive highlights from triggering bloom.
+
+#### CVars
+
+| CVar | Default | Description |
+|------|---------|-------------|
+| `r_hq_wall_probes` | 1 | Enable probe lighting on brush entities (0/1) |
+| `r_hq_wall_probes_intensity` | 0.15 | Probe contribution strength (0.0-1.0) |
+| `r_hq_wall_probes_max_brightness` | 0.85 | Soft cap to prevent bloom (0.0-1.0) |
+| `r_hq_wall_probes_blend` | 0 | Lightmap/probe blend (0=all lightmap, 1=all probe) |
+
+#### How It Works
+
+1. **Probe sampling**: Brush entities sample the light probe at their origin
+2. **Color tinting**: Probe ambient and directional colors are added to the lightmap
+3. **Blend mode**: `r_hq_wall_probes_blend` controls mix between lightmap and probe:
+   - `0` = Full lightmap + subtle probe tint (default)
+   - `1` = Full probe lighting, no lightmap
+   - `0.5` = 50/50 blend
+4. **Soft clamping**: Values above `max_brightness * 0.8` are smoothly compressed
+5. **Animated styles**: Probe updates propagate to brush entities in real-time
+
+#### Tuning for Bloom Prevention
+
+If you see excessive bloom on brush entities:
+```
+r_hq_wall_probes_intensity 0.1   // Reduce probe contribution
+r_hq_wall_probes_max_brightness 0.7  // Lower brightness cap
+```
+
+For stronger probe effect (may bloom in bright areas):
+```
+r_hq_wall_probes_intensity 0.25  // Stronger coloring
+r_hq_wall_probes_max_brightness 0.95  // Higher cap
+```
+
+**Note**: World geometry (static walls) uses baked lightmaps and does not currently
+receive probe lighting. Only brush entities (func_door, func_plat, etc.) are affected.
 
 ## Texture Enhancement System
 
@@ -97,13 +152,13 @@ xBRZ pixel art upscaling with 5x5 kernel and optional PBR map generation.
 
 | CVar | Default | Description |
 |------|---------|-------------|
-| `r_tex_upscale` | 0 | Texture upscaling: 0=off, 1=2x, 2=4x |
-| `r_tex_pbr` | 0 | PBR maps (normal/roughness): 0=off, 1=on |
+| `r_hq_tex_upscale` | 0 | Texture upscaling: 0=off (default), 1=2x, 2=4x |
+| `r_hq_tex_pbr` | 1 | PBR maps (normal/roughness): 0=off, 1=on |
 
 ### Quick Start
 
 ```
-r_tex_upscale 2    // 4x upscale for best quality
+r_hq_tex_upscale 2    // 4x upscale for best quality
 map e1m1           // Reload map
 ```
 

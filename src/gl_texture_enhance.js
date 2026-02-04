@@ -14,14 +14,15 @@
 
 import * as THREE from 'three';
 import { cvar_t } from './cvar.js';
+import { Con_Printf } from './common.js';
 
 //============================================================================
 // CVars
 //============================================================================
 
-export const r_tex_upscale = new cvar_t( 'r_tex_upscale', '1', true ); // 0=off, 1=2x (default), 2=4x
-export const r_tex_pbr = new cvar_t( 'r_tex_pbr', '1', true ); // 0=off, 1=on (default on)
-export const r_tex_upscale_filter = new cvar_t( 'r_tex_upscale_filter', '0', true ); // 0=scale2x (sharp), 1=scale2x enhanced (smoother)
+export const r_tex_upscale = new cvar_t( 'r_hq_tex_upscale', '0', true ); // 0=off (default), 1=2x, 2=4x
+export const r_tex_pbr = new cvar_t( 'r_hq_tex_pbr', '1', true ); // 0=off, 1=on (default on)
+export const r_tex_upscale_filter = new cvar_t( 'r_hq_tex_upscale_filter', '0', true ); // 0=scale2x (sharp), 1=scale2x enhanced (smoother)
 
 //============================================================================
 // Memory tracking
@@ -54,6 +55,70 @@ function trackTextureMemory( width, height, channels = 4, add = true ) {
 		_totalTextureMemory -= bytes;
 
 	}
+
+}
+
+//============================================================================
+// Upscaling progress tracking
+//============================================================================
+
+let _upscalingStarted = false;
+let _upscalingStartTime = 0;
+let _texturesUpscaledThisSession = 0;
+
+/**
+ * Called before starting texture upscaling for a map load.
+ * Shows a warning message about potential slowness.
+ */
+export function beginTextureUpscaling() {
+
+	if ( _upscalingStarted ) return;
+
+	const upscaleLevel = r_tex_upscale.value | 0;
+	if ( upscaleLevel <= 0 ) return;
+
+	_upscalingStarted = true;
+	_upscalingStartTime = performance.now();
+	_texturesUpscaledThisSession = 0;
+
+	const scaleName = upscaleLevel === 1 ? '2x' : '4x';
+	Con_Printf( '\n========================================\n' );
+	Con_Printf( 'Texture upscaling enabled (' + scaleName + ')\n' );
+	Con_Printf( 'This may take a while...\n' );
+	Con_Printf( 'Tip: If too slow, run: r_hq_resetall\n' );
+	Con_Printf( '========================================\n' );
+
+}
+
+/**
+ * Called after texture upscaling is complete.
+ * Shows completion message with stats.
+ */
+export function endTextureUpscaling() {
+
+	if ( ! _upscalingStarted ) return;
+
+	const elapsed = ( ( performance.now() - _upscalingStartTime ) / 1000 ).toFixed( 1 );
+	const stats = getTextureMemoryStats();
+
+	Con_Printf( '========================================\n' );
+	Con_Printf( 'Texture upscaling complete!\n' );
+	Con_Printf( 'Upscaled: ' + _texturesUpscaledThisSession + ' textures\n' );
+	Con_Printf( 'Time: ' + elapsed + 's\n' );
+	Con_Printf( 'Memory: ' + stats.totalMB + ' MB\n' );
+	Con_Printf( '========================================\n\n' );
+
+	_upscalingStarted = false;
+
+}
+
+/**
+ * Reset upscaling state (call on map change).
+ */
+export function resetTextureUpscalingState() {
+
+	_upscalingStarted = false;
+	_texturesUpscaledThisSession = 0;
 
 }
 
@@ -1236,6 +1301,9 @@ export function enhanceTexture( renderer, texture, rgba, width, height, isAlphaT
 			resultTexture = upscaled;
 			resultWidth = width * scaleFactor;
 			resultHeight = height * scaleFactor;
+
+			// Track progress
+			_texturesUpscaledThisSession ++;
 
 			// Get upscaled RGBA data for PBR generation (stored in userData)
 			if ( r_tex_pbr.value && upscaled.userData.upscaledPixels ) {
