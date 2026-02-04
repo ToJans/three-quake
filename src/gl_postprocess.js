@@ -1,10 +1,11 @@
 //============================================================================
 // gl_postprocess.js - Three.js postprocessing system
 //
-// Uses Three.js EffectComposer with GTAOPass, SSRPass, and QuakeBloomPass.
+// Uses Three.js EffectComposer with GTAOPass and QuakeBloomPass.
+// SSR uses custom screen-space ray marching (gl_ssr.js).
 //
 // cg_hq bitmask:
-//   bit 0 (1) = SSR (screen-space reflections)
+//   bit 0 (1) = SSR (screen-space reflections) - handled by gl_ssr.js
 //   bit 1 (2) = AO (ambient occlusion via GTAO)
 //   bit 2 (4) = Bloom
 //   bit 3 (8) = Tonemapping
@@ -15,19 +16,20 @@ import * as THREE from 'three'; // Uses shimmed three.js via importmap
 // Three.js postprocessing
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { SSRPass } from 'three/addons/postprocessing/SSRPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { QuakeBloomPass } from './gl_bloom_pass.js';
 
 import { renderer, vid, VID_AddResizeCallback } from './vid.js';
-import { scene, camera, cg_hq, cg_hq_ssr, cg_hq_ao, cg_hq_bloom, cg_hq_tonemapping } from './gl_rmain.js';
+import { scene, camera, cg_hq, cg_hq_ao, cg_hq_bloom, cg_hq_tonemapping } from './gl_rmain.js';
 import {
 	cg_hq_ao_radius, cg_hq_ao_intensity, cg_hq_ao_debug,
 	cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius,
-	cg_hq_ssr_maxdistance, cg_hq_ssr_thickness, cg_hq_ssr_intensity,
 	cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure
 } from './gl_rmain.js';
+
+// SSR is currently disabled due to compatibility issues with Quake camera setup
+// The Three.js SSRPass requires a standard camera, and the custom SSR has issues too
 
 // Tone mapping operators (matching cg_hq_tonemapping_operator values)
 const TONE_MAPPING_OPERATORS = [
@@ -44,7 +46,6 @@ const TONE_MAPPING_OPERATORS = [
 
 let threeComposer = null;
 let threeRenderPass = null;
-let threeSsrPass = null;
 let threeGtaoPass = null;
 let threeBloomPass = null;
 let threeOutputPass = null;
@@ -63,11 +64,6 @@ function getCvarState() {
 
 	return {
 		hq,
-		// SSR
-		ssr: cg_hq_ssr.value | 0,
-		ssrMaxDistance: cg_hq_ssr_maxdistance.value | 0,
-		ssrThickness: cg_hq_ssr_thickness.value | 0,
-		ssrIntensity: parseFloat( cg_hq_ssr_intensity.value ) || 1.0,
 		// AO
 		ao: cg_hq_ao.value | 0,
 		aoRadius: parseFloat( cg_hq_ao_radius.value ) || 32,
@@ -83,7 +79,7 @@ function getCvarState() {
 		tonemappingOperator: cg_hq_tonemapping_operator.value | 0,
 		tonemappingExposure: parseFloat( cg_hq_tonemapping_exposure.value ) || 1.0,
 		// Computed enabled states (used for structural decisions)
-		ssrEnabled: ( hq & 1 ) !== 0 || ( cg_hq_ssr.value | 0 ) === 1,
+		// Note: SSR is disabled due to camera compatibility issues
 		aoEnabled: ( hq & 2 ) !== 0 || ( cg_hq_ao.value | 0 ) === 1,
 		bloomEnabled: ( hq & 4 ) !== 0 || ( cg_hq_bloom.value | 0 ) === 1,
 		tonemappingEnabled: ( hq & 8 ) !== 0 || ( cg_hq_tonemapping.value | 0 ) === 1
@@ -101,9 +97,9 @@ function needsReinit( newState ) {
 
 	// Structural changes that require rebuilding the pass chain:
 	// - aoDebug mode change (different pass chain for debug vs normal)
-	// - Any effect being enabled/disabled
+	// - Any effect being enabled/disabled (except SSR which is handled separately)
 	const structuralKeys = [
-		'aoDebug', 'ssrEnabled', 'aoEnabled', 'bloomEnabled', 'tonemappingEnabled'
+		'aoDebug', 'aoEnabled', 'bloomEnabled', 'tonemappingEnabled'
 	];
 
 	for ( const key of structuralKeys ) {
@@ -137,15 +133,6 @@ function applyParameterChanges( state ) {
 			distanceFallOff: 1.0,
 			screenSpaceRadius: false
 		} );
-
-	}
-
-	// SSR parameters
-	if ( threeSsrPass ) {
-
-		threeSsrPass.maxDistance = state.ssrMaxDistance / 4000;
-		threeSsrPass.thickness = state.ssrThickness / 1000;
-		threeSsrPass.opacity = state.ssrIntensity;
 
 	}
 
@@ -189,7 +176,6 @@ function initThreeJS( state ) {
 	// Clear pass references
 	threeRenderPass = null;
 	threeGtaoPass = null;
-	threeSsrPass = null;
 	threeBloomPass = null;
 	threeOutputPass = null;
 
@@ -233,8 +219,8 @@ function initThreeJS( state ) {
 		if ( state.aoEnabled ) {
 
 			threeGtaoPass = new GTAOPass( scene, camera, width, height );
-			// Use Denoise output (5) for blended AO, or Default (0) if aoDebug is 5
-			threeGtaoPass.output = state.aoDebug === 5 ? GTAOPass.OUTPUT.Denoise : GTAOPass.OUTPUT.Denoise;
+			// Use Default output for blended AO (0 = scene * AO)
+			threeGtaoPass.output = GTAOPass.OUTPUT.Default;
 			threeGtaoPass.enabled = true;
 			threeGtaoPass.blendIntensity = 1.0;
 			threeGtaoPass.updateGtaoMaterial( {
@@ -247,23 +233,6 @@ function initThreeJS( state ) {
 			} );
 			threeComposer.addPass( threeGtaoPass );
 			console.log( '[PostProcess] GTAO: enabled, radius=', state.aoRadius, 'intensity=', state.aoIntensity );
-
-		}
-
-		// SSR pass
-		if ( state.ssrEnabled ) {
-
-			threeSsrPass = new SSRPass( {
-				renderer, scene, camera, width, height,
-				groundReflector: null,
-				selects: null
-			} );
-			threeSsrPass.enabled = true;
-			threeSsrPass.maxDistance = state.ssrMaxDistance / 4000;
-			threeSsrPass.thickness = state.ssrThickness / 1000;
-			threeSsrPass.opacity = state.ssrIntensity;
-			threeComposer.addPass( threeSsrPass );
-			console.log( '[PostProcess] SSR: enabled' );
 
 		}
 
@@ -316,7 +285,6 @@ function PostProcess_Resize( width, height ) {
 
 		threeComposer.setSize( width, height );
 		if ( threeGtaoPass ) threeGtaoPass.setSize( width, height );
-		if ( threeSsrPass ) threeSsrPass.setSize( width, height );
 		if ( threeBloomPass ) threeBloomPass.setSize( width, height );
 
 	}
@@ -346,7 +314,7 @@ export function PostProcess_Render() {
 	const aoDebugMode = state.aoDebug >= 2 && state.aoDebug <= 4;
 
 	// Check if any effect is wanted (for early return)
-	if ( ! aoDebugMode && ! state.ssrEnabled && ! state.aoEnabled && ! state.bloomEnabled && ! state.tonemappingEnabled ) {
+	if ( ! aoDebugMode && ! state.aoEnabled && ! state.bloomEnabled && ! state.tonemappingEnabled ) {
 
 		return false;
 
@@ -367,8 +335,8 @@ export function PostProcess_Render() {
 	if ( threeComposer ) {
 
 		if ( threeRenderPass ) threeRenderPass.camera = camera;
-		if ( threeSsrPass ) threeSsrPass.camera = camera;
 		if ( threeGtaoPass ) threeGtaoPass.camera = camera;
+
 		threeComposer.render();
 		return true;
 

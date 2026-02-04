@@ -222,6 +222,7 @@ export const cg_hq_ssr = new cvar_t( 'cg_hq_ssr', '1', true );
 export const cg_hq_ssr_maxdistance = new cvar_t( 'cg_hq_ssr_maxdistance', '500', true );
 export const cg_hq_ssr_thickness = new cvar_t( 'cg_hq_ssr_thickness', '10', true );
 export const cg_hq_ssr_intensity = new cvar_t( 'cg_hq_ssr_intensity', '1.0', true );
+export const cg_hq_ssr_debug = new cvar_t( 'cg_hq_ssr_debug', '0', false ); // 0=default, 1=SSR, 3=beauty, 4=depth, 5=normal, 7=metalness
 
 // AO (bit 1)
 export const cg_hq_ao = new cvar_t( 'cg_hq_ao', '1', true );
@@ -963,9 +964,8 @@ function isHQFeatureEnabled( bitmask, individualCvar ) {
 
 function R_ApplyHQEffects() {
 
-	// Use Three.js built-in postprocessing (SSR, GTAO, Bloom, OutputPass)
-	// The PostProcess_Render function handles all effects via EffectComposer
-	// Returns true if postprocessing was applied, false if no effects enabled
+	// Use Three.js EffectComposer for AO, Bloom, Tonemapping
+	// SSR is currently disabled due to compatibility issues with the Quake camera
 	return PostProcess_Render();
 
 }

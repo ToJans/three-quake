@@ -1553,6 +1553,19 @@ export function R_CleanupWaterMeshes() {
 
 }
 
+/*
+================
+R_GetWaterMeshes
+
+Returns array of current water meshes in scene (for SSR reflector setup).
+================
+*/
+export function R_GetWaterMeshes() {
+
+	return Array.from( _waterMeshesInScene );
+
+}
+
 //============================================================================
 // DrawTextureChains
 //============================================================================
