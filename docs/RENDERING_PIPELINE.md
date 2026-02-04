@@ -119,12 +119,8 @@ Reflectivity is determined per-mesh based on texture names and surface type:
 ### SSR Debug Modes
 
 ```
-cg_hq_ssr_debug 0   # Normal rendering
-cg_hq_ssr_debug 1   # Show SSR only
-cg_hq_ssr_debug 2   # Show reflection mask (alpha channel)
-cg_hq_ssr_debug 3   # Show depth buffer
-cg_hq_ssr_debug 4   # Show scene color buffer
-cg_hq_ssr_debug 5   # Show reflectivity mask
+Note: SSR debug modes were removed as they used a separate custom SSR
+implementation that didn't reflect the actual Three.js SSRPass behavior.
 ```
 
 ---

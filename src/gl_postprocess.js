@@ -25,10 +25,9 @@ import { scene, camera, cg_hq, cg_hq_ssr, cg_hq_ao, cg_hq_bloom, cg_hq_tonemappi
 import {
 	cg_hq_ao_radius, cg_hq_ao_intensity, cg_hq_ao_debug,
 	cg_hq_bloom_threshold, cg_hq_bloom_intensity, cg_hq_bloom_radius,
-	cg_hq_ssr_maxdistance, cg_hq_ssr_thickness, cg_hq_ssr_intensity, cg_hq_ssr_debug,
+	cg_hq_ssr_maxdistance, cg_hq_ssr_thickness, cg_hq_ssr_intensity,
 	cg_hq_tonemapping_operator, cg_hq_tonemapping_exposure
 } from './gl_rmain.js';
-import { SSR_Init, SSR_Apply, SSR_SetEnabled, SSR_SetDebugMode } from './gl_ssr.js';
 
 // Tone mapping operators (matching cg_hq_tonemapping_operator values)
 const TONE_MAPPING_OPERATORS = [
@@ -69,7 +68,6 @@ function getCvarState() {
 		ssrMaxDistance: cg_hq_ssr_maxdistance.value | 0,
 		ssrThickness: cg_hq_ssr_thickness.value | 0,
 		ssrIntensity: parseFloat( cg_hq_ssr_intensity.value ) || 1.0,
-		ssrDebug: cg_hq_ssr_debug.value | 0,
 		// AO
 		ao: cg_hq_ao.value | 0,
 		aoRadius: parseFloat( cg_hq_ao_radius.value ) || 32,
@@ -102,10 +100,10 @@ function needsReinit( newState ) {
 	if ( ! lastCvarState ) return true;
 
 	// Structural changes that require rebuilding the pass chain:
-	// - aoDebug/ssrDebug mode change (different pass chain for debug vs normal)
+	// - aoDebug mode change (different pass chain for debug vs normal)
 	// - Any effect being enabled/disabled
 	const structuralKeys = [
-		'aoDebug', 'ssrDebug', 'ssrEnabled', 'aoEnabled', 'bloomEnabled', 'tonemappingEnabled'
+		'aoDebug', 'ssrEnabled', 'aoEnabled', 'bloomEnabled', 'tonemappingEnabled'
 	];
 
 	for ( const key of structuralKeys ) {
@@ -347,37 +345,10 @@ export function PostProcess_Render() {
 	// AO debug mode always needs postprocessing (even if AO itself is disabled)
 	const aoDebugMode = state.aoDebug >= 2 && state.aoDebug <= 4;
 
-	// SSR debug mode: use custom SSR system which has debug rendering
-	// 0=off, 1=SSR only, 2=reflection mask, 3=depth, 4=color, 5=reflectivity
-	const ssrDebugMode = state.ssrDebug >= 1 && state.ssrDebug <= 5;
-
 	// Check if any effect is wanted (for early return)
-	if ( ! aoDebugMode && ! ssrDebugMode && ! state.ssrEnabled && ! state.aoEnabled && ! state.bloomEnabled && ! state.tonemappingEnabled ) {
+	if ( ! aoDebugMode && ! state.ssrEnabled && ! state.aoEnabled && ! state.bloomEnabled && ! state.tonemappingEnabled ) {
 
 		return false;
-
-	}
-
-	// SSR debug mode uses custom SSR system (bypasses EffectComposer)
-	if ( ssrDebugMode ) {
-
-		// Initialize custom SSR if needed and set debug mode
-		SSR_Init();
-		SSR_SetEnabled( true );
-		SSR_SetDebugMode( state.ssrDebug );
-
-		// Render scene first, then apply SSR with debug output
-		renderer.render( scene, camera );
-		SSR_Apply();
-
-		// Only log once when mode changes
-		if ( ! lastCvarState || lastCvarState.ssrDebug !== state.ssrDebug ) {
-
-			console.log( '[PostProcess] SSR DEBUG MODE:', state.ssrDebug, '(1=SSR, 2=mask, 3=depth, 4=color, 5=reflectivity)' );
-
-		}
-		lastCvarState = { ...state };
-		return true;
 
 	}
 
